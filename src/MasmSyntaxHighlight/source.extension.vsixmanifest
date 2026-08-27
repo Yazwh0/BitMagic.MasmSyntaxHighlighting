@@ -3,7 +3,7 @@
   <Metadata>
     <Identity Id="MasmSyntaxHighlight.9E5C6F1A-2B7D-4C3E-9A1F-8D0E4B6C7A21" Version="1.0.0" Language="en-US" Publisher="Yazwh0" />
     <DisplayName>BitMagic MASM (ml64) Syntax Highlighting</DisplayName>
-    <Description xml:space="preserve">Syntax colouring for Microsoft Macro Assembler 64-bit (ml64.exe) source. Colours .asm and .inc files: comments (including COMMENT blocks), strings, numeric literals, x86-64 registers, instruction mnemonics, assembler directives, data-type keywords, operators and labels. Colouring only.</Description>
+    <Description xml:space="preserve">Syntax colouring, comment/uncomment, outlining and brace matching for Microsoft Macro Assembler 64-bit (ml64.exe) .asm and .inc files. Colours comments, strings, numbers, registers, mnemonics, directives, data types, labels and PROC names using your theme's colours.</Description>
     <MoreInfo>https://learn.microsoft.com/cpp/assembler/masm/microsoft-macro-assembler-reference</MoreInfo>
     <License>LICENSE.txt</License>
     <Icon>Icon.png</Icon>
