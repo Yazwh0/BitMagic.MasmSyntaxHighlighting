@@ -116,7 +116,7 @@ Two GitHub Actions workflows are included (`.github/workflows/`):
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
 | `build.yml` | push to `main`/`master`, any PR, manual | Restores, builds the VSIX on `windows-latest`, uploads it as a build **artifact** (`MasmSyntaxHighlight-vsix`). |
-| `release.yml` | push a `v*` tag (e.g. `v1.2.0`), or manual with a version | Stamps the version into `source.extension.vsixmanifest`, builds, and publishes a **GitHub Release** with the `.vsix` attached. |
+| `release.yml` | push a `v*` tag (e.g. `v1.2.0`), or manual with a version | Stamps the version into the manifest **and** `AssemblyInfo.cs`, builds, and publishes a **GitHub Release** with the `.vsix` attached. |
 
 Both build with `msbuild` only - the VSIX packaging targets come from the
 `Microsoft.VSSDK.BuildTools` NuGet package, so no Visual Studio workload is needed on the
@@ -129,9 +129,25 @@ git tag v1.2.0
 git push origin v1.2.0
 ```
 
-The manifest version does not need editing by hand - the workflow rewrites the
-`<Identity Version="...">` attribute from the tag. The `.vsix` is attached to the GitHub
-Release; Marketplace publishing is done separately by hand.
+Nothing needs editing by hand: for that build the workflow rewrites `<Identity Version>` in
+`source.extension.vsixmanifest` and the `AssemblyVersion` / `AssemblyFileVersion` in
+`Properties/AssemblyInfo.cs` from the tag (`1.2.0` for the manifest, `1.2.0.0` for the
+assembly). These edits are build-time only and not committed - the git tag and the GitHub
+Release are the record. Version format is `Major.Minor.Build[.Revision]`.
+
+### Versioning for a manual Marketplace upload
+
+If you upload a `.vsix` to the Marketplace by hand instead of tagging a release, **bump the
+version first** - the Marketplace rejects any upload whose version is not strictly greater
+than the last one published. Edit these before building:
+
+* `source.extension.vsixmanifest` - `<Identity ... Version="X.Y.Z" ...>` (this is the one the
+  Marketplace and the "update available" check read)
+* `Properties/AssemblyInfo.cs` - `AssemblyVersion` and `AssemblyFileVersion` (keep them in
+  step, `X.Y.Z.0`)
+
+The repository copies stay at `1.0.0` between releases; the currently published version lives
+in the git tags / GitHub Releases.
 
 ## Customising the colours
 

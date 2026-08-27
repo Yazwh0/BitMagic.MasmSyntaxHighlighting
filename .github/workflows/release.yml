@@ -30,18 +30,27 @@ jobs:
           $v = '${{ github.event.inputs.version }}'
           if (-not $v) { $v = '${{ github.ref_name }}' -replace '^v', '' }
           if ($v -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { throw "Version '$v' is not N.N.N[.N]" }
-          "version=$v" >> $env:GITHUB_OUTPUT
-          "tag=v$v"     >> $env:GITHUB_OUTPUT
-          Write-Host "Releasing $v"
+          $v4 = if (($v -split '\.').Count -eq 4) { $v } else { "$v.0" }
+          "version=$v"   >> $env:GITHUB_OUTPUT
+          "version4=$v4" >> $env:GITHUB_OUTPUT
+          "tag=v$v"      >> $env:GITHUB_OUTPUT
+          Write-Host "Releasing $v (assembly $v4)"
 
-      - name: Stamp version into source.extension.vsixmanifest
+      - name: Stamp version into manifest and AssemblyInfo
         shell: pwsh
         run: |
-          $path = 'src/MasmSyntaxHighlight/source.extension.vsixmanifest'
-          $xml  = Get-Content $path -Raw
-          $xml  = [regex]::Replace($xml, '(<Identity\b[^>]*\bVersion=")[^"]*(")', '${1}${{ steps.ver.outputs.version }}${2}')
-          Set-Content $path $xml -NoNewline
-          Write-Host $xml
+          $manifest = 'src/MasmSyntaxHighlight/source.extension.vsixmanifest'
+          $xml = Get-Content $manifest -Raw
+          $xml = [regex]::Replace($xml, '(<Identity\b[^>]*\bVersion=")[^"]*(")', '${1}${{ steps.ver.outputs.version }}${2}')
+          Set-Content $manifest $xml -NoNewline
+
+          $asm = 'src/MasmSyntaxHighlight/Properties/AssemblyInfo.cs'
+          $cs = Get-Content $asm -Raw
+          $cs = [regex]::Replace($cs, '(AssemblyVersion\(")[^"]*("\))',     '${1}${{ steps.ver.outputs.version4 }}${2}')
+          $cs = [regex]::Replace($cs, '(AssemblyFileVersion\(")[^"]*("\))', '${1}${{ steps.ver.outputs.version4 }}${2}')
+          Set-Content $asm $cs -NoNewline
+
+          Write-Host "manifest = ${{ steps.ver.outputs.version }} ; assembly = ${{ steps.ver.outputs.version4 }}"
 
       - name: Restore NuGet packages
         run: msbuild MasmSyntaxHighlight.sln -t:Restore -p:Configuration=Release
