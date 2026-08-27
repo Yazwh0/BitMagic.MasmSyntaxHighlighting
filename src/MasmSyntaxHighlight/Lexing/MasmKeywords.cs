@@ -18,6 +18,18 @@ namespace MasmSyntaxHighlight.Lexing
         /// <summary>Keywords that, when they follow a leading identifier, make that identifier a definition name.</summary>
         internal static readonly HashSet<string> DefinitionFollowers = New();
 
+        /// <summary>Subset of <see cref="DefinitionFollowers"/> that mark the identifier as a procedure / macro name.</summary>
+        internal static readonly HashSet<string> ProcDefinitionFollowers = New();
+
+        /// <summary>Followers that mark the identifier as a STRUCT / RECORD / UNION / TYPEDEF name.</summary>
+        internal static readonly HashSet<string> TypeDefinitionFollowers = New();
+
+        /// <summary>Followers that mark the identifier as a constant name (EQU / = / TEXTEQU / string equates).</summary>
+        internal static readonly HashSet<string> ConstantDefinitionFollowers = New();
+
+        /// <summary>Followers that mark the identifier as a data variable name (db..dq, BYTE..REAL10).</summary>
+        internal static readonly HashSet<string> DataDefinitionFollowers = New();
+
         private static HashSet<string> New() => new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         static MasmKeywords()
@@ -52,6 +64,13 @@ namespace MasmSyntaxHighlight.Lexing
             Add(DataTypes, DataTypeList);
             Add(Operators, OperatorList);
             Add(DefinitionFollowers, DefinitionFollowerList);
+            Add(ProcDefinitionFollowers, "proc endp proto macro");
+            Add(TypeDefinitionFollowers, "struc struct record union typedef");
+            Add(ConstantDefinitionFollowers, "= equ textequ catstr substr sizestr instr");
+            Add(DataDefinitionFollowers,
+                "db dw dd df dt dp dq " +
+                "byte sbyte word sword dword sdword fword qword sqword tbyte oword " +
+                "mmword xmmword ymmword zmmword real4 real8 real10");
         }
 
         private static void Add(HashSet<string> set, string words)

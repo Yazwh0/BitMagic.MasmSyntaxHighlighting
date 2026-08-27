@@ -5,6 +5,8 @@
     <DisplayName>BitMagic MASM (ml64) Syntax Highlighting</DisplayName>
     <Description xml:space="preserve">Syntax colouring for Microsoft Macro Assembler 64-bit (ml64.exe) source. Colours .asm and .inc files: comments (including COMMENT blocks), strings, numeric literals, x86-64 registers, instruction mnemonics, assembler directives, data-type keywords, operators and labels. Colouring only.</Description>
     <MoreInfo>https://learn.microsoft.com/cpp/assembler/masm/microsoft-macro-assembler-reference</MoreInfo>
+    <Icon>Icon.png</Icon>
+    <PreviewImage>PreviewImage.png</PreviewImage>
     <Tags>masm, ml64, assembly, asm, x64, syntax highlighting, colorizer</Tags>
   </Metadata>
   <Installation>

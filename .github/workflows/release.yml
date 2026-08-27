@@ -1,0 +1,95 @@
+name: release
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 1.2.3 (a matching tag is created)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = '${{ github.event.inputs.version }}'
+          if (-not $v) { $v = '${{ github.ref_name }}' -replace '^v', '' }
+          if ($v -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { throw "Version '$v' is not N.N.N[.N]" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "tag=v$v"     >> $env:GITHUB_OUTPUT
+          Write-Host "Releasing $v"
+
+      - name: Stamp version into source.extension.vsixmanifest
+        shell: pwsh
+        run: |
+          $path = 'src/MasmSyntaxHighlight/source.extension.vsixmanifest'
+          $xml  = Get-Content $path -Raw
+          $xml  = [regex]::Replace($xml, '(<Identity\b[^>]*\bVersion=")[^"]*(")', '${1}${{ steps.ver.outputs.version }}${2}')
+          Set-Content $path $xml -NoNewline
+          Write-Host $xml
+
+      - name: Restore NuGet packages
+        run: msbuild MasmSyntaxHighlight.sln -t:Restore -p:Configuration=Release
+
+      - name: Build VSIX
+        run: msbuild MasmSyntaxHighlight.sln -t:Build -p:Configuration=Release -p:DeployExtension=false
+
+      - name: Locate VSIX
+        id: vsix
+        shell: pwsh
+        run: |
+          $f = Get-ChildItem 'src/MasmSyntaxHighlight/bin/Release/*.vsix' | Select-Object -First 1
+          if (-not $f) { throw 'No .vsix produced' }
+          $out = "MasmSyntaxHighlight-$('${{ steps.ver.outputs.version }}').vsix"
+          Copy-Item $f.FullName $out
+          "path=$out" >> $env:GITHUB_OUTPUT
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          files: ${{ steps.vsix.outputs.path }}
+          generate_release_notes: true
+
+      # ---- Optional: also push to the Visual Studio Marketplace -------------------
+      # Runs only when a repository secret named VS_MARKETPLACE_PAT is set.
+      # See README ("Releasing") for how to create the token and edit vs-publish.json.
+      - name: Check for marketplace token
+        id: mkt
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.VS_MARKETPLACE_PAT }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "VS_MARKETPLACE_PAT not set - skipping Marketplace publish."
+          fi
+
+      - name: Publish to Visual Studio Marketplace
+        if: steps.mkt.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          $publisher = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022' -Recurse -Filter 'VsixPublisher.exe' -ErrorAction SilentlyContinue |
+                       Select-Object -First 1
+          if (-not $publisher) { throw 'VsixPublisher.exe not found on the runner' }
+          & $publisher.FullName publish `
+            -payload        '${{ steps.vsix.outputs.path }}' `
+            -publishManifest 'vs-publish.json' `
+            -personalAccessToken '${{ secrets.VS_MARKETPLACE_PAT }}' `
+            -ignoreWarnings 'VSIXValidatorWarning01,VSIXValidatorWarning02'

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using MasmSyntaxHighlight.Lexing;
+using Microsoft.VisualStudio.Language.StandardClassification;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
 
@@ -10,29 +11,61 @@ namespace MasmSyntaxHighlight.Classification
     /// Colours a MASM buffer. The whole document is re-lexed whenever it changes (assembly
     /// source files are small, and multi-line constructs such as <c>COMMENT</c> blocks and
     /// line continuations make a stateless per-line classifier unreliable).
+    ///
+    /// Token kinds map onto stock classifications so the colours follow the user's theme and
+    /// Fonts and Colors settings: the built-in editor ones where they fit, the C# / Roslyn
+    /// classifications ("User Types", "User Methods", label name) for data types, PROC names
+    /// and labels, and the extension's own "MASM Register" (which has no equivalent at all).
     /// </summary>
     internal sealed class MasmClassifier : IClassifier
     {
+        // Roslyn classifications reused for tokens with no built-in editor equivalent.
+        private const string ClassNameClassification = "class name";     // data-type / size keywords
+        private const string StructNameClassification = "struct name";   // STRUCT / RECORD / TYPEDEF names
+        private const string MethodNameClassification = "method name";   // PROC / MACRO names, call targets
+        private const string LabelNameClassification = "label name";     // code labels, jump targets
+        private const string FieldNameClassification = "field name";     // data variable names
+        private const string ConstantNameClassification = "constant name"; // EQU / = names
+
         private readonly ITextBuffer _buffer;
         private readonly Dictionary<MasmTokenKind, IClassificationType> _types;
 
         private ITextSnapshot _lexedSnapshot;
         private List<MasmToken> _tokens = new List<MasmToken>();
 
-        internal MasmClassifier(ITextBuffer buffer, IClassificationTypeRegistryService registry)
+        internal MasmClassifier(
+            ITextBuffer buffer,
+            IClassificationTypeRegistryService registry,
+            IStandardClassificationService standard)
         {
             _buffer = buffer;
+
+            IClassificationType Roslyn(string name) => registry.GetClassificationType(name);
+
+            IClassificationType dataType = Roslyn(ClassNameClassification) ?? standard.Keyword;
+            IClassificationType typeName = Roslyn(StructNameClassification)
+                                          ?? Roslyn(ClassNameClassification) ?? standard.Keyword;
+            IClassificationType procName = Roslyn(MethodNameClassification) ?? standard.SymbolDefinition;
+            IClassificationType label = Roslyn(LabelNameClassification) ?? standard.SymbolDefinition;
+            IClassificationType dataName = Roslyn(FieldNameClassification) ?? standard.SymbolDefinition;
+            IClassificationType constantName = Roslyn(ConstantNameClassification) ?? standard.SymbolDefinition;
+            IClassificationType register = Roslyn(MasmClassificationNames.Register) ?? standard.Keyword;
+
             _types = new Dictionary<MasmTokenKind, IClassificationType>
             {
-                [MasmTokenKind.Comment] = registry.GetClassificationType(MasmClassificationNames.Comment),
-                [MasmTokenKind.String] = registry.GetClassificationType(MasmClassificationNames.String),
-                [MasmTokenKind.Number] = registry.GetClassificationType(MasmClassificationNames.Number),
-                [MasmTokenKind.Register] = registry.GetClassificationType(MasmClassificationNames.Register),
-                [MasmTokenKind.Mnemonic] = registry.GetClassificationType(MasmClassificationNames.Mnemonic),
-                [MasmTokenKind.Directive] = registry.GetClassificationType(MasmClassificationNames.Directive),
-                [MasmTokenKind.DataType] = registry.GetClassificationType(MasmClassificationNames.DataType),
-                [MasmTokenKind.Operator] = registry.GetClassificationType(MasmClassificationNames.Operator),
-                [MasmTokenKind.Label] = registry.GetClassificationType(MasmClassificationNames.Label),
+                [MasmTokenKind.Comment] = standard.Comment,
+                [MasmTokenKind.String] = standard.StringLiteral,
+                [MasmTokenKind.Number] = standard.NumberLiteral,
+                [MasmTokenKind.Operator] = standard.Operator,
+                [MasmTokenKind.Label] = label,
+                [MasmTokenKind.ProcName] = procName,
+                [MasmTokenKind.TypeName] = typeName,
+                [MasmTokenKind.DataName] = dataName,
+                [MasmTokenKind.ConstantName] = constantName,
+                [MasmTokenKind.Mnemonic] = standard.Keyword,
+                [MasmTokenKind.Directive] = standard.PreprocessorKeyword,
+                [MasmTokenKind.DataType] = dataType,
+                [MasmTokenKind.Register] = register,
             };
 
             _buffer.Changed += OnBufferChanged;

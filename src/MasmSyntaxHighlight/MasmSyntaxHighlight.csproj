@@ -61,6 +61,7 @@
   <ItemGroup>
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="MasmContentTypes.cs" />
+    <Compile Include="Commands\MasmCommentCommandHandler.cs" />
     <Compile Include="Classification\MasmClassificationNames.cs" />
     <Compile Include="Classification\MasmClassificationTypes.cs" />
     <Compile Include="Classification\MasmClassificationFormats.cs" />
@@ -76,6 +77,15 @@
     <None Include="source.extension.vsixmanifest">
       <SubType>Designer</SubType>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Icon.png">
+      <IncludeInVSIX>true</IncludeInVSIX>
+    </Content>
+    <Content Include="PreviewImage.png">
+      <IncludeInVSIX>true</IncludeInVSIX>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

@@ -1,4 +1,5 @@
 using System.ComponentModel.Composition;
+using Microsoft.VisualStudio.Language.StandardClassification;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
 using Microsoft.VisualStudio.Utilities;
@@ -13,10 +14,13 @@ namespace MasmSyntaxHighlight.Classification
         [Import]
         internal IClassificationTypeRegistryService ClassificationRegistry { get; set; }
 
+        [Import]
+        internal IStandardClassificationService StandardClassifications { get; set; }
+
         public IClassifier GetClassifier(ITextBuffer textBuffer)
         {
             return textBuffer.Properties.GetOrCreateSingletonProperty(
-                () => new MasmClassifier(textBuffer, ClassificationRegistry));
+                () => new MasmClassifier(textBuffer, ClassificationRegistry, StandardClassifications));
         }
     }
 }

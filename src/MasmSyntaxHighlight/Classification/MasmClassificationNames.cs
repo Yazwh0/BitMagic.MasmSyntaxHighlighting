@@ -1,19 +1,17 @@
 namespace MasmSyntaxHighlight.Classification
 {
     /// <summary>
-    /// Canonical names for every classification (colour) type contributed by the extension.
-    /// These strings are the keys shown under Tools > Options > Environment > Fonts and Colors.
+    /// Names of classification types the extension defines itself. Every other MASM token maps
+    /// onto a built-in Visual Studio classification - see <see cref="MasmClassifier"/>.
     /// </summary>
     internal static class MasmClassificationNames
     {
-        public const string Comment = "MASM/Comment";
-        public const string String = "MASM/String";
-        public const string Number = "MASM/Number";
+        /// <summary>
+        /// x86-64 registers. Visual Studio has no built-in "register" classification and the
+        /// identifier/variable classifications have no distinct default colour, so this is the
+        /// one classification the extension adds. It inherits the "keyword" appearance until
+        /// the user overrides the "MASM Register" entry in Fonts and Colors.
+        /// </summary>
         public const string Register = "MASM/Register";
-        public const string Mnemonic = "MASM/Mnemonic";
-        public const string Directive = "MASM/Directive";
-        public const string DataType = "MASM/DataType";
-        public const string Operator = "MASM/Operator";
-        public const string Label = "MASM/Label";
     }
 }

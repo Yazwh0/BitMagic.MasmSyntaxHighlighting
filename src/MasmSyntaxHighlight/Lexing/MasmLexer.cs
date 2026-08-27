@@ -71,14 +71,34 @@ namespace MasmSyntaxHighlight.Lexing
                     continue;
                 }
 
-                // ---- word that begins with '.' (directive, or a real like .5) -------
+                // ---- '.' : directive (.code), struct member access ([rdx].field), or real (.5)
                 if (c == '.')
                 {
                     string dotted = PeekWord();
+
+                    // struct / record member access: a '.' stuck directly onto a preceding
+                    // ']' ')' register or identifier - e.g. [rdx].zimodem.data_dir
+                    bool memberAccess = dotted.Length > 1
+                        && IsIdentStart(_text[_pos + 1])
+                        && tokens.Count > 0
+                        && tokens[tokens.Count - 1].End == _pos
+                        && IsMemberAccessTarget(tokens[tokens.Count - 1]);
+
+                    if (memberAccess)
+                    {
+                        tokens.Add(new MasmToken(_pos, 1, MasmTokenKind.Operator)); // the dot
+                        _pos++;
+                        int nameStart = _pos;
+                        while (_pos < _len && IsIdentPart(_text[_pos])) _pos++;
+                        tokens.Add(new MasmToken(nameStart, _pos - nameStart, MasmTokenKind.Identifier));
+                        _atStatementStart = false;
+                        continue;
+                    }
+
                     if (dotted.Length > 1 &&
                         (IsLetter(_text[_pos + 1]) || MasmKeywords.Directives.Contains(dotted)))
                     {
-                        tokens.Add(ReadWord());
+                        tokens.Add(ReadWord(tokens));
                         _atStatementStart = false;
                         continue;
                     }
@@ -118,9 +138,11 @@ namespace MasmSyntaxHighlight.Lexing
                         continue;
                     }
 
-                    var word = ReadWord();
+                    var word = ReadWord(tokens);
                     tokens.Add(word);
-                    _atStatementStart = word.Kind == MasmTokenKind.Label; // a label may be followed by another statement
+                    // a label / proc name may be followed by another statement on the same line
+                    _atStatementStart = word.Kind == MasmTokenKind.Label
+                                     || word.Kind == MasmTokenKind.ProcName;
                     continue;
                 }
 
@@ -263,7 +285,7 @@ namespace MasmSyntaxHighlight.Lexing
         }
 
         /// <summary>Reads an identifier (possibly '.'-prefixed) and classifies it.</summary>
-        private MasmToken ReadWord()
+        private MasmToken ReadWord(List<MasmToken> tokens)
         {
             int start = _pos;
             bool dotted = _text[_pos] == '.';
@@ -300,26 +322,108 @@ namespace MasmSyntaxHighlight.Lexing
                 return new MasmToken(start, length, MasmTokenKind.Operator);
 
             // definition name:   name PROC | name EQU | name = | name db ... | name BYTE ...
-            if (_atStatementStart && LooksLikeDefinition())
-                return new MasmToken(start, length, MasmTokenKind.Label);
+            if (_atStatementStart)
+            {
+                MasmTokenKind? definition = ClassifyDefinitionName();
+                if (definition.HasValue)
+                    return new MasmToken(start, length, definition.Value);
+            }
+
+            // reference coloured by the operand it follows:
+            //   call / invoke <name>   -> proc name
+            //   jmp / jCC / loop / short <name>  -> label
+            if (tokens.Count > 0)
+            {
+                MasmToken prev = tokens[tokens.Count - 1];
+                if (IsCallLikePrefix(prev))
+                    return new MasmToken(start, length, MasmTokenKind.ProcName);
+                if (IsBranchPrefix(prev))
+                    return new MasmToken(start, length, MasmTokenKind.Label);
+            }
 
             return new MasmToken(start, length, MasmTokenKind.Identifier);
         }
 
-        /// <summary>Looks past the just-read word for a keyword that marks it as a definition name.</summary>
-        private bool LooksLikeDefinition()
+        /// <summary>True when <paramref name="prev"/> is <c>call</c> or <c>invoke</c>.</summary>
+        private bool IsCallLikePrefix(MasmToken prev)
+        {
+            if (prev.Kind != MasmTokenKind.Mnemonic && prev.Kind != MasmTokenKind.Directive)
+                return false;
+            string s = _text.Substring(prev.Start, prev.Length);
+            return s.Equals("call", System.StringComparison.OrdinalIgnoreCase)
+                || s.Equals("invoke", System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>True when <paramref name="prev"/> is a branch mnemonic (j*, loop*) or the <c>short</c> operator.</summary>
+        private bool IsBranchPrefix(MasmToken prev)
+        {
+            if (prev.Kind == MasmTokenKind.Mnemonic)
+            {
+                char c0 = _text[prev.Start];
+                if (c0 == 'j' || c0 == 'J') return true;
+                return _text.Substring(prev.Start, prev.Length)
+                            .StartsWith("loop", System.StringComparison.OrdinalIgnoreCase);
+            }
+            if (prev.Kind == MasmTokenKind.Operator)
+            {
+                return _text.Substring(prev.Start, prev.Length)
+                            .Equals("short", System.StringComparison.OrdinalIgnoreCase);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// True when a '.' immediately following this token should be read as struct/record
+        /// member access (<c>[rdx].field</c>, <c>var.field</c>) rather than a directive.
+        /// </summary>
+        private bool IsMemberAccessTarget(MasmToken token)
+        {
+            switch (token.Kind)
+            {
+                case MasmTokenKind.Register:
+                case MasmTokenKind.Identifier:
+                case MasmTokenKind.Label:
+                case MasmTokenKind.DataType:
+                    return true;
+                case MasmTokenKind.Operator:
+                    return _text[token.Start] == ']' || _text[token.Start] == ')';
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Looks past the just-read word for a keyword that marks it as a definition name, and
+        /// returns which kind: <see cref="MasmTokenKind.ProcName"/> for <c>PROC</c> / <c>ENDP</c>
+        /// / <c>PROTO</c> / <c>MACRO</c>, <see cref="MasmTokenKind.Label"/> for the rest
+        /// (<c>EQU</c>, <c>=</c>, <c>db</c>, <c>STRUCT</c>, ...), or <c>null</c> if it is not a
+        /// definition.
+        /// </summary>
+        private MasmTokenKind? ClassifyDefinitionName()
         {
             int p = _pos;
-            if (p >= _len || (_text[p] != ' ' && _text[p] != '\t')) return false;
+            if (p >= _len || (_text[p] != ' ' && _text[p] != '\t')) return null;
             while (p < _len && (_text[p] == ' ' || _text[p] == '\t')) p++;
-            if (p >= _len) return false;
-            if (_text[p] == '=') return true;
+            if (p >= _len) return null;
+            if (_text[p] == '=') return MasmTokenKind.ConstantName;
 
             int s = p;
             if (_text[p] == '.') p++;
-            if (p >= _len || !IsIdentPart(_text[p])) return false;
+            if (p >= _len || !IsIdentPart(_text[p])) return null;
             while (p < _len && IsIdentPart(_text[p])) p++;
-            return MasmKeywords.DefinitionFollowers.Contains(_text.Substring(s, p - s));
+            string follower = _text.Substring(s, p - s);
+
+            if (MasmKeywords.ProcDefinitionFollowers.Contains(follower))
+                return MasmTokenKind.ProcName;
+            if (MasmKeywords.TypeDefinitionFollowers.Contains(follower))
+                return MasmTokenKind.TypeName;
+            if (MasmKeywords.ConstantDefinitionFollowers.Contains(follower))
+                return MasmTokenKind.ConstantName;
+            if (MasmKeywords.DataDefinitionFollowers.Contains(follower))
+                return MasmTokenKind.DataName;
+            if (MasmKeywords.DefinitionFollowers.Contains(follower))
+                return MasmTokenKind.Label;
+            return null;
         }
 
         /// <summary>Consumes a MASM COMMENT block starting at the current position (just past the keyword).</summary>
