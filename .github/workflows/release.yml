@@ -97,17 +97,12 @@ jobs:
         env:
           VS_MARKETPLACE_PAT: ${{ secrets.VS_MARKETPLACE_PAT }}
         run: |
-          $candidates = @(
-            'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VSSDK\VisualStudioIntegration\Tools\Bin\VsixPublisher.exe',
-            'C:\Program Files\Microsoft Visual Studio\2022\Professional\VSSDK\VisualStudioIntegration\Tools\Bin\VsixPublisher.exe',
-            'C:\Program Files\Microsoft Visual Studio\2022\Community\VSSDK\VisualStudioIntegration\Tools\Bin\VsixPublisher.exe'
-          )
-          $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $exe) {
-            $exe = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022' -Recurse -Filter VsixPublisher.exe -ErrorAction SilentlyContinue |
-                    Select-Object -First 1).FullName
-          }
-          if (-not $exe) { throw 'VsixPublisher.exe not found on the runner' }
+          # VsixPublisher.exe ships inside the Microsoft.VSSDK.BuildTools NuGet package that
+          # the project already restores - the hosted runner does not have it in the VS install.
+          $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE '.nuget/packages' }
+          $exe = Get-ChildItem (Join-Path $nugetRoot 'microsoft.vssdk.buildtools') -Recurse -Filter 'VsixPublisher.exe' -ErrorAction SilentlyContinue |
+                 Sort-Object FullName -Descending | Select-Object -First 1 | ForEach-Object FullName
+          if (-not $exe) { throw 'VsixPublisher.exe not found under the NuGet cache - did the Restore step run?' }
 
           Write-Host "Using $exe"
           & $exe publish `
