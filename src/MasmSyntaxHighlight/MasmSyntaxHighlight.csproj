@@ -62,6 +62,7 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="MasmContentTypes.cs" />
     <Compile Include="Commands\MasmCommentCommandHandler.cs" />
+    <Compile Include="Editing\MasmSmartIndent.cs" />
     <Compile Include="Tagging\MasmOutliningTagger.cs" />
     <Compile Include="Tagging\MasmBraceMatchingTagger.cs" />
     <Compile Include="Classification\MasmClassificationNames.cs" />
@@ -73,6 +74,8 @@
     <Compile Include="Lexing\MasmToken.cs" />
     <Compile Include="Lexing\MasmKeywords.cs" />
     <Compile Include="Lexing\MasmLexer.cs" />
+    <Compile Include="Lexing\MasmSymbols.cs" />
+    <Compile Include="Lexing\MasmIncludeIndex.cs" />
   </ItemGroup>
 
   <ItemGroup>

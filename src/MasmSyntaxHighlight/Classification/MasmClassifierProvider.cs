@@ -17,10 +17,18 @@ namespace MasmSyntaxHighlight.Classification
         [Import]
         internal IStandardClassificationService StandardClassifications { get; set; }
 
+        [Import]
+        internal ITextDocumentFactoryService DocumentFactory { get; set; }
+
         public IClassifier GetClassifier(ITextBuffer textBuffer)
         {
-            return textBuffer.Properties.GetOrCreateSingletonProperty(
-                () => new MasmClassifier(textBuffer, ClassificationRegistry, StandardClassifications));
+            return textBuffer.Properties.GetOrCreateSingletonProperty(() =>
+            {
+                ITextDocument document = null;
+                DocumentFactory?.TryGetTextDocument(textBuffer, out document);
+                return new MasmClassifier(
+                    textBuffer, document, ClassificationRegistry, StandardClassifications);
+            });
         }
     }
 }

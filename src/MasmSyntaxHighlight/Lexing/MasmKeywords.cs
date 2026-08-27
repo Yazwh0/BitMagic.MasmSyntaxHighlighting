@@ -64,7 +64,9 @@ namespace MasmSyntaxHighlight.Lexing
             Add(DataTypes, DataTypeList);
             Add(Operators, OperatorList);
             Add(DefinitionFollowers, DefinitionFollowerList);
-            Add(ProcDefinitionFollowers, "proc endp proto macro");
+            // 'endp' is intentionally absent: the name on an ENDP line is resolved from the
+            // matching PROC by MasmSymbols, which keeps the closing line consistent.
+            Add(ProcDefinitionFollowers, "proc proto macro");
             Add(TypeDefinitionFollowers, "struc struct record union typedef");
             Add(ConstantDefinitionFollowers, "= equ textequ catstr substr sizestr instr");
             Add(DataDefinitionFollowers,
@@ -213,8 +215,8 @@ eq ne lt le gt ge
 ";
 
         private const string DefinitionFollowerList = @"
-proc endp macro struc struct union record typedef proto
-equ textequ label segment ends group
+proc macro struc struct union record typedef proto
+equ textequ label segment group
 catstr substr sizestr instr
 db dw dd dq df dt dp
 byte sbyte word sword dword sdword fword qword sqword tbyte oword

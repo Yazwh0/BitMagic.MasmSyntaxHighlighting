@@ -1,8 +1,9 @@
 # BitMagic MASM (ml64) Syntax Highlighting
 
 A Visual Studio 2022 extension for Microsoft Macro Assembler 64-bit (`ml64.exe`) source files.
-It provides **syntax colouring**, **Comment / Uncomment**, **outlining** (collapsible blocks)
-and **brace matching** - and nothing else: no build integration, IntelliSense or diagnostics.
+It provides **syntax colouring**, **Comment / Uncomment**, **outlining** (collapsible blocks),
+**brace matching** and **smart indent** - and nothing else: no build integration, IntelliSense
+or diagnostics.
 
 ## What it colours
 
@@ -28,18 +29,23 @@ defaults to the *Keyword* colour.
 | Code label, jump target | `done:`, `@@:`, `jz done`, `jmp short retry` | Label Name *(plain in most themes)* |
 | Register | `rax`, `r8d`, `xmm0`..`zmm31`, `k0`..`k7`, `st(0)`, `cr3`, segment regs | **MASM Register** (added; defaults to Keyword) |
 
-Only *definitions* and a few well-known reference forms (`call`/`invoke`/`jmp`/`jCC` targets)
-are coloured; other references - a struct type or field in `[rdx].Type.field`, a macro
-invoked bare - stay plain identifiers, because the lexer has no symbol table.
+A **symbol pass** records every definition - in this file **and in every file reached through
+`INCLUDE`** (transitively) - then colours later *references* to the same name like the
+definition: `mov r8, offset gBuf`, `dd helper` (a function-pointer table), `SIZEOF Point`, a
+`PROTO`'d API in `call MessageBoxA`, and the struct type / field in `[rbx].WNDCLASS.style`.
+Combined with the `call`/`invoke`/`jmp`/`jCC` heuristics, most references light up. `INCLUDE`
+paths resolve relative to the including file and to `%INCLUDE%`; included files are read from
+disk (last saved state) and cached by write time. The table is flat (no scopes), so a short
+field name like `x` shared with an unrelated identifier can bleed colour.
 
 Keyword matching is **case-insensitive** (as MASM is). Words that are both an instruction and
 an operator (`and`, `or`, `xor`, `not`, `shl`, `shr`) are coloured as an instruction only when
 they start a statement, otherwise as an operator.
 
 In struct / record member access - a `.` written directly against a `]`, `)`, register or
-identifier, e.g. `lea rcx, [rdx].zimodem.data_dir` - the `.` is an operator and each name
-(`zimodem`, `data_dir`) is a plain identifier, *not* a directive. A leading `.` with
-whitespace before it (`[rdx] .field`) is still read as a directive.
+identifier, e.g. `lea rcx, [rdx].Point.data_dir` - the `.` is an operator and each name is
+resolved against the symbol table (falling back to a plain identifier), *not* read as a
+directive. A leading `.` with whitespace before it (`[rdx] .field`) is still a directive.
 
 ## Comment / Uncomment
 
@@ -76,6 +82,14 @@ ignored.
 Put the caret next to a `(` `)` `[` or `]` and it and its partner are boxed. Braces inside
 `;` comments and string literals are ignored. Angle brackets are **not** matched - MASM uses
 `<` / `>` as comparison operators in `.IF` / `.WHILE` expressions.
+
+## Smart indent
+
+Pressing Enter keeps the previous non-blank line's indentation, and adds one level (your
+configured indent size) when that line opens a block: `PROC`, `MACRO`, `STRUC`/`STRUCT`/
+`UNION`, `SEGMENT`, `.IF`/`.ELSE`/`.ELSEIF`, `.WHILE`, `.REPEAT`, the `IF*` conditional-assembly
+directives, and the repeat blocks. It does **not** out-dent a closing keyword you type
+(`ENDP`, `.ENDIF`, ...) - use Backspace or Shift+Tab.
 
 ## Requirements
 
@@ -224,10 +238,16 @@ needs to change.
   classifications *User Types*, *User Methods*, *Label Name*, *User Fields*, *User Constants*.
   On the rare Visual Studio install without the managed-languages component they fall back to
   *Keyword* (types) or *Symbol Definition* (the rest).
-* The lexer has no symbol table. It colours definitions plus the obvious reference forms
-  (`call` / `invoke` / `jmp` / `jCC` target); anything needing to know what a name *is* -
-  a struct type vs a field in `[rdx].Type.field`, `X ENDS` closing a struct vs a segment,
-  a bare macro call - is left as a plain identifier.
+* The symbol pass is a flat name table with no scopes. When a name has several definitions a
+  type or proc kind wins over a data / constant / label of the same name (so a field named
+  after the struct it points to, `zimodem qword ?`, still colours as the type in
+  `[r12].zimodem.x`); past that first/local wins. It can't tell a `STRUCT` `X ENDS` from a
+  `SEGMENT` `X ENDS` beyond what the opener said.
+* `INCLUDE` symbols come from disk, so a header open with unsaved edits is seen in its last
+  saved state, and editing a header does not recolour other open files until you touch them.
+  `INCLUDE` paths passed only via `ml64 /I` (not `%INCLUDE%` or a relative path) are not found.
+* Smart indent adds a level after a block opener but does not out-dent the closing keyword you
+  type - Backspace or Shift+Tab. It is skipped for projection buffers (diff view, etc.).
 
 ## Project layout
 
@@ -247,6 +267,8 @@ src/MasmSyntaxHighlight/
   MasmContentTypes.cs                 "masm" content type + .asm/.inc mapping
   Commands/
     MasmCommentCommandHandler.cs      Comment / Uncomment / Toggle Line Comment
+  Editing/
+    MasmSmartIndent.cs               ISmartIndent - indent one level after a block opener
   Tagging/
     MasmOutliningTagger.cs            Collapsible regions for paired blocks and ;region
     MasmBraceMatchingTagger.cs        Highlights the () / [] pair next to the caret
@@ -261,6 +283,8 @@ src/MasmSyntaxHighlight/
     MasmToken.cs                      Token struct (offset/length/kind)
     MasmKeywords.cs                   Register / mnemonic / directive / type / operator lists
     MasmLexer.cs                      Hand-written MASM lexer
+    MasmSymbols.cs                    Resolve references to definitions (this file + includes)
+    MasmIncludeIndex.cs              Cached scan of INCLUDEd files for their definitions
 samples/demo.asm                      Eyeball test file
 ```
 

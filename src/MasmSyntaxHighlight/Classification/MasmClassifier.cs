@@ -28,6 +28,7 @@ namespace MasmSyntaxHighlight.Classification
         private const string ConstantNameClassification = "constant name"; // EQU / = names
 
         private readonly ITextBuffer _buffer;
+        private readonly ITextDocument _document;
         private readonly Dictionary<MasmTokenKind, IClassificationType> _types;
 
         private ITextSnapshot _lexedSnapshot;
@@ -35,10 +36,12 @@ namespace MasmSyntaxHighlight.Classification
 
         internal MasmClassifier(
             ITextBuffer buffer,
+            ITextDocument document,
             IClassificationTypeRegistryService registry,
             IStandardClassificationService standard)
         {
             _buffer = buffer;
+            _document = document;
 
             IClassificationType Roslyn(string name) => registry.GetClassificationType(name);
 
@@ -87,7 +90,21 @@ namespace MasmSyntaxHighlight.Classification
         private void EnsureLexed(ITextSnapshot snapshot)
         {
             if (ReferenceEquals(_lexedSnapshot, snapshot)) return;
-            _tokens = new MasmLexer(snapshot.GetText()).Tokenize();
+
+            string text = snapshot.GetText();
+            List<MasmToken> tokens = new MasmLexer(text).Tokenize();
+
+            Dictionary<string, MasmTokenKind> included = null;
+            try
+            {
+                included = MasmIncludeIndex.Collect(_document?.FilePath, text);
+            }
+            catch
+            {
+                // never let include scanning break colouring
+            }
+
+            _tokens = MasmSymbols.ResolveReferences(tokens, text, included);
             _lexedSnapshot = snapshot;
         }
 
