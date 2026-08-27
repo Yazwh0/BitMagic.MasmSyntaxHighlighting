@@ -1,0 +1,14 @@
+## Build output
+[Bb]in/
+[Oo]bj/
+*.user
+
+## Visual Studio
+.vs/
+
+## NuGet
+packages/
+*.nupkg
+
+## VSIX build artifacts
+*.vsix

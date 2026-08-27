@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
+  <Metadata>
+    <Identity Id="MasmSyntaxHighlight.9E5C6F1A-2B7D-4C3E-9A1F-8D0E4B6C7A21" Version="1.0.0" Language="en-US" Publisher="Yazwh0" />
+    <DisplayName>BitMagic MASM (ml64) Syntax Highlighting</DisplayName>
+    <Description xml:space="preserve">Syntax colouring for Microsoft Macro Assembler 64-bit (ml64.exe) source. Colours .asm and .inc files: comments (including COMMENT blocks), strings, numeric literals, x86-64 registers, instruction mnemonics, assembler directives, data-type keywords, operators and labels. Colouring only.</Description>
+    <MoreInfo>https://learn.microsoft.com/cpp/assembler/masm/microsoft-macro-assembler-reference</MoreInfo>
+    <Tags>masm, ml64, assembly, asm, x64, syntax highlighting, colorizer</Tags>
+  </Metadata>
+  <Installation>
+    <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0, 18.0)">
+      <ProductArchitecture>amd64</ProductArchitecture>
+    </InstallationTarget>
+    <InstallationTarget Id="Microsoft.VisualStudio.Pro" Version="[17.0, 18.0)">
+      <ProductArchitecture>amd64</ProductArchitecture>
+    </InstallationTarget>
+  </Installation>
+  <Dependencies>
+    <Dependency Id="Microsoft.Framework.NDP" DisplayName="Microsoft .NET Framework" d:Source="Manual" Version="[4.7.2,)" />
+  </Dependencies>
+  <Prerequisites>
+    <Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor" Version="[17.0,18.0)" DisplayName="Visual Studio core editor" />
+  </Prerequisites>
+  <Assets>
+    <Asset Type="Microsoft.VisualStudio.MefComponent" d:Source="Project" d:ProjectName="%CurrentProject%" Path="|%CurrentProject%|" />
+  </Assets>
+</PackageManifest>
