@@ -168,9 +168,9 @@ release still builds and attaches the `.vsix` to a GitHub Release.
 **Check `vs-publish.json` before the first release**
 
 * `publisher` = `Yazwh0`
-* `identity.internalName` = `masm64-syntax-highlighting` - this becomes the permanent listing
-  slug `marketplace.visualstudio.com/items?itemName=Yazwh0.masm64-syntax-highlighting`; change
-  it now if you want a different URL.
+* `identity.internalName` = `Masm64SyntaxHighlighting` - this becomes the permanent listing
+  slug `marketplace.visualstudio.com/items?itemName=Yazwh0.Masm64SyntaxHighlighting`; change
+  it now if you want a different URL (no spaces or hyphens allowed).
 * `repo` - set to the real GitHub URL.
 
 **Release**
