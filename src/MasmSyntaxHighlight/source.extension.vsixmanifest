@@ -8,7 +8,7 @@
     <License>LICENSE.txt</License>
     <Icon>Icon.png</Icon>
     <PreviewImage>PreviewImage.png</PreviewImage>
-    <Tags>masm, ml64, assembly, asm, x64, syntax highlighting, colorizer</Tags>
+    <Tags>masm, ml64, asm, x64, assembler</Tags>
   </Metadata>
   <Installation>
     <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0, 18.0)">
