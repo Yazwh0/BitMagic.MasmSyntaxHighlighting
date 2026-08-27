@@ -1,8 +1,8 @@
 # BitMagic MASM (ml64) Syntax Highlighting
 
 A Visual Studio 2022 extension for Microsoft Macro Assembler 64-bit (`ml64.exe`) source files.
-It provides **syntax colouring** plus **Comment / Uncomment Selection**, and nothing else - no
-build integration, IntelliSense, outlining or diagnostics.
+It provides **syntax colouring**, **Comment / Uncomment**, **outlining** (collapsible blocks)
+and **brace matching** - and nothing else: no build integration, IntelliSense or diagnostics.
 
 ## What it colours
 
@@ -58,6 +58,25 @@ These editor commands work in `.asm` / `.inc` files, using `;` as the marker:
 * **Toggle** uncomments when every selected non-blank line already starts (after indentation)
   with `;`, otherwise it comments.
 
+## Outlining
+
+Collapsible regions appear for these paired blocks:
+
+`PROC`/`ENDP` &nbsp;·&nbsp; `MACRO`/`ENDM` &nbsp;·&nbsp; `STRUCT` `STRUC` `UNION`/`ENDS`
+&nbsp;·&nbsp; `SEGMENT`/`ENDS` &nbsp;·&nbsp; `.IF`/`.ENDIF` &nbsp;·&nbsp; `.WHILE`/`.ENDW`
+&nbsp;·&nbsp; `.REPEAT`/`.UNTIL[CXZ]` &nbsp;·&nbsp; `IF*`/`ENDIF` (conditional assembly)
+&nbsp;·&nbsp; `REPT` `REPEAT` `IRP` `IRPC` `FOR` `FORC` `WHILE`/`ENDM`
+
+and for `;region <name>` ... `;endregion` comment markers (the region name is shown when
+collapsed). Blocks are matched on a stack, so nesting works and an unmatched keyword is
+ignored.
+
+## Brace matching
+
+Put the caret next to a `(` `)` `[` or `]` and it and its partner are boxed. Braces inside
+`;` comments and string literals are ignored. Angle brackets are **not** matched - MASM uses
+`<` / `>` as comparison operators in `.IF` / `.WHILE` expressions.
+
 ## Requirements
 
 * Visual Studio 2022 (17.x), 64-bit.
@@ -97,7 +116,7 @@ Two GitHub Actions workflows are included (`.github/workflows/`):
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
 | `build.yml` | push to `main`/`master`, any PR, manual | Restores, builds the VSIX on `windows-latest`, uploads it as a build **artifact** (`MasmSyntaxHighlight-vsix`). |
-| `release.yml` | push a `v*` tag (e.g. `v1.2.0`), or manual with a version | Stamps the version into `source.extension.vsixmanifest`, builds, and publishes a **GitHub Release** with the `.vsix` attached. Optionally also pushes to the Visual Studio Marketplace. |
+| `release.yml` | push a `v*` tag (e.g. `v1.2.0`), or manual with a version | Stamps the version into `source.extension.vsixmanifest`, builds, and publishes a **GitHub Release** with the `.vsix` attached. |
 
 Both build with `msbuild` only - the VSIX packaging targets come from the
 `Microsoft.VSSDK.BuildTools` NuGet package, so no Visual Studio workload is needed on the
@@ -111,19 +130,8 @@ git push origin v1.2.0
 ```
 
 The manifest version does not need editing by hand - the workflow rewrites the
-`<Identity Version="...">` attribute from the tag.
-
-### Also publishing to the Visual Studio Marketplace (optional)
-
-The Marketplace step in `release.yml` runs only if a repository secret **`VS_MARKETPLACE_PAT`**
-is present. To enable it:
-
-1. Create a publisher at <https://marketplace.visualstudio.com/manage> and note its ID.
-2. Create an Azure DevOps Personal Access Token (<https://dev.azure.com> > User settings >
-   Personal access tokens) with **Marketplace > Manage** scope, "All accessible organizations".
-3. Add it as a repo secret: *Settings > Secrets and variables > Actions* > `VS_MARKETPLACE_PAT`.
-4. Edit [`vs-publish.json`](vs-publish.json): set `publisher` to your publisher ID, `repo` to
-   this repository's URL, and `identity.internalName` to a unique slug for the listing.
+`<Identity Version="...">` attribute from the tag. The `.vsix` is attached to the GitHub
+Release; Marketplace publishing is done separately by hand.
 
 ## Customising the colours
 
@@ -167,23 +175,27 @@ needs to change.
 
 ```
 MasmSyntaxHighlight.sln
+LICENSE                              GPL-3.0 (canonical copy; src/.../LICENSE.txt mirrors it)
 .github/workflows/
   build.yml                          CI build + artifact
-  release.yml                        Tag -> GitHub Release (+ optional Marketplace)
-vs-publish.json                      Visual Studio Marketplace publish manifest
+  release.yml                        Tag -> GitHub Release with the .vsix attached
 src/MasmSyntaxHighlight/
   MasmSyntaxHighlight.csproj          VSIX project (VS 2022, .NET Framework 4.7.2)
   source.extension.vsixmanifest       Extension manifest (MEF component asset)
   Icon.png / PreviewImage.png         Extension icon (128) and preview (256)
+  LICENSE.txt                         Copy of /LICENSE, packaged into the .vsix
   MasmContentTypes.cs                 "masm" content type + .asm/.inc mapping
   Commands/
-    MasmCommentCommandHandler.cs      Comment / Uncomment Selection (inserts / removes ';')
+    MasmCommentCommandHandler.cs      Comment / Uncomment / Toggle Line Comment
+  Tagging/
+    MasmOutliningTagger.cs            Collapsible regions for paired blocks and ;region
+    MasmBraceMatchingTagger.cs        Highlights the () / [] pair next to the caret
   Classification/
     MasmClassificationNames.cs        Name of the one custom classification (MASM Register)
     MasmClassificationTypes.cs        Registers "MASM/Register" (derives from Keyword)
     MasmClassificationFormats.cs      "MASM Register" Fonts and Colors entry
     MasmClassifierProvider.cs         IClassifierProvider (one per buffer)
-    MasmClassifier.cs                 IClassifier - maps tokens to built-in classifications
+    MasmClassifier.cs                 IClassifier - maps tokens to stock classifications
   Lexing/
     MasmTokenKind.cs                  Token kinds
     MasmToken.cs                      Token struct (offset/length/kind)
@@ -195,3 +207,9 @@ samples/demo.asm                      Eyeball test file
 > If a local `msbuild` reports *"doesn't list 'win' as a RuntimeIdentifier"* after you edit
 > the `.csproj`, delete `src/MasmSyntaxHighlight/obj` and restore again - it is stale
 > intermediate state, not a real project error. Clean CI checkouts are unaffected.
+
+## License
+
+[GPL-3.0-only](LICENSE). The full text is at [`LICENSE`](LICENSE); `src/MasmSyntaxHighlight/LICENSE.txt`
+is a byte-for-byte copy that gets packaged into the `.vsix` - keep the two in sync if you ever
+change it.

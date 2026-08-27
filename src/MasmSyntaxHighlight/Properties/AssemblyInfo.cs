@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("BitMagic")]
 [assembly: AssemblyProduct("BitMagic MASM (ml64) Syntax Highlighting")]
-[assembly: AssemblyCopyright("")]
+[assembly: AssemblyCopyright("Licensed under the GNU General Public License v3.0 (GPL-3.0-only)")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 [assembly: ComVisible(false)]

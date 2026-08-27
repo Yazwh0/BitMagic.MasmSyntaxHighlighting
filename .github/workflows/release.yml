@@ -66,30 +66,3 @@ jobs:
           name: ${{ steps.ver.outputs.tag }}
           files: ${{ steps.vsix.outputs.path }}
           generate_release_notes: true
-
-      # ---- Optional: also push to the Visual Studio Marketplace -------------------
-      # Runs only when a repository secret named VS_MARKETPLACE_PAT is set.
-      # See README ("Releasing") for how to create the token and edit vs-publish.json.
-      - name: Check for marketplace token
-        id: mkt
-        shell: bash
-        run: |
-          if [ -n "${{ secrets.VS_MARKETPLACE_PAT }}" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "VS_MARKETPLACE_PAT not set - skipping Marketplace publish."
-          fi
-
-      - name: Publish to Visual Studio Marketplace
-        if: steps.mkt.outputs.enabled == 'true'
-        shell: pwsh
-        run: |
-          $publisher = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022' -Recurse -Filter 'VsixPublisher.exe' -ErrorAction SilentlyContinue |
-                       Select-Object -First 1
-          if (-not $publisher) { throw 'VsixPublisher.exe not found on the runner' }
-          & $publisher.FullName publish `
-            -payload        '${{ steps.vsix.outputs.path }}' `
-            -publishManifest 'vs-publish.json' `
-            -personalAccessToken '${{ secrets.VS_MARKETPLACE_PAT }}' `
-            -ignoreWarnings 'VSIXValidatorWarning01,VSIXValidatorWarning02'

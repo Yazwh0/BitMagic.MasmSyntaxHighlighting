@@ -12,3 +12,6 @@ packages/
 
 ## VSIX build artifacts
 *.vsix
+
+## Licence copied next to the project for packaging (canonical file is /LICENSE)
+/src/MasmSyntaxHighlight/LICENSE.txt
