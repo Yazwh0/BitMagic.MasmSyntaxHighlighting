@@ -116,7 +116,7 @@ Two GitHub Actions workflows are included (`.github/workflows/`):
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
 | `build.yml` | push to `main`/`master`, any PR, manual | Restores, builds the VSIX on `windows-latest`, uploads it as a build **artifact** (`MasmSyntaxHighlight-vsix`). |
-| `release.yml` | push a `v*` tag (e.g. `v1.2.0`), or manual with a version | Stamps the version into the manifest **and** `AssemblyInfo.cs`, builds, and publishes a **GitHub Release** with the `.vsix` attached. |
+| `release.yml` | push a `v*` tag (e.g. `v1.2.0`), or manual with a version | Stamps the version into the manifest **and** `AssemblyInfo.cs`, builds, publishes a **GitHub Release** with the `.vsix` attached, and — if `VS_MARKETPLACE_PAT` is set — pushes to the **Visual Studio Marketplace**. |
 
 Both build with `msbuild` only - the VSIX packaging targets come from the
 `Microsoft.VSSDK.BuildTools` NuGet package, so no Visual Studio workload is needed on the
@@ -133,21 +133,63 @@ Nothing needs editing by hand: for that build the workflow rewrites `<Identity V
 `source.extension.vsixmanifest` and the `AssemblyVersion` / `AssemblyFileVersion` in
 `Properties/AssemblyInfo.cs` from the tag (`1.2.0` for the manifest, `1.2.0.0` for the
 assembly). These edits are build-time only and not committed - the git tag and the GitHub
-Release are the record. Version format is `Major.Minor.Build[.Revision]`.
+Release are the record. Version format is `Major.Minor.Build[.Revision]`, and each release
+must be a strictly higher version than the last (the Marketplace rejects re-uploads).
 
-### Versioning for a manual Marketplace upload
+### Publishing to the Visual Studio Marketplace
 
-If you upload a `.vsix` to the Marketplace by hand instead of tagging a release, **bump the
-version first** - the Marketplace rejects any upload whose version is not strictly greater
-than the last one published. Edit these before building:
+The `release.yml` "Publish to Visual Studio Marketplace" step runs `VsixPublisher.exe` with
+[`vs-publish.json`](vs-publish.json) + [`marketplace-overview.md`](marketplace-overview.md). It
+only runs when the repository secret **`VS_MARKETPLACE_PAT`** exists; without it a tagged
+release still builds and attaches the `.vsix` to a GitHub Release.
 
-* `source.extension.vsixmanifest` - `<Identity ... Version="X.Y.Z" ...>` (this is the one the
-  Marketplace and the "update available" check read)
-* `Properties/AssemblyInfo.cs` - `AssemblyVersion` and `AssemblyFileVersion` (keep them in
-  step, `X.Y.Z.0`)
+**One-time: create the Azure DevOps token**
 
-The repository copies stay at `1.0.0` between releases; the currently published version lives
-in the git tags / GitHub Releases.
+1. Go to <https://dev.azure.com> and sign in with the **same Microsoft account** as the
+   `Yazwh0` Marketplace publisher. If prompted, create an organization (any name - it just
+   has to exist).
+2. Top-right, open **User settings** (the person-with-gear icon) → **Personal access tokens**
+   (or `https://dev.azure.com/<org>/_usersSettings/tokens`).
+3. **+ New Token**:
+   * **Name**: `vs-marketplace-publish`
+   * **Organization**: **All accessible organizations**
+   * **Expiration**: your choice (max 1 year - set a calendar reminder to rotate)
+   * **Scopes**: click **Show all scopes**, find **Marketplace**, tick **Manage**
+4. **Create**, then **copy the token immediately** - it is shown once.
+   *(If your existing `vsce` token already has Marketplace → Manage for all organizations you
+   can reuse it.)*
+
+**One-time: add it as a GitHub Actions secret**
+
+1. On GitHub, open the repository's **Settings** (repo settings, not your account).
+2. **Secrets and variables** → **Actions** → **New repository secret**.
+3. **Name**: `VS_MARKETPLACE_PAT` (exact). **Secret**: paste the token. **Add secret**.
+
+**Check `vs-publish.json` before the first release**
+
+* `publisher` = `Yazwh0`
+* `identity.internalName` = `masm64-syntax-highlighting` - this becomes the permanent listing
+  slug `marketplace.visualstudio.com/items?itemName=Yazwh0.masm64-syntax-highlighting`; change
+  it now if you want a different URL.
+* `repo` - set to the real GitHub URL.
+
+**Release**
+
+```
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The first run creates the Marketplace listing; later runs update it. Validation takes a few
+minutes. If the runner ever lacks `VsixPublisher.exe` the step fails with a clear message -
+the GitHub Release is already published at that point, so you can re-upload by hand.
+
+### Versioning for a manual upload
+
+To upload a `.vsix` by hand instead of tagging, **bump the version first** in both
+`source.extension.vsixmanifest` (`<Identity Version="X.Y.Z">`) and `Properties/AssemblyInfo.cs`
+(`AssemblyVersion` / `AssemblyFileVersion`, `X.Y.Z.0`). The repository copies stay at `1.0.0`
+between releases; the published version lives in the git tags / GitHub Releases.
 
 ## Customising the colours
 
@@ -194,7 +236,9 @@ MasmSyntaxHighlight.sln
 LICENSE                              GPL-3.0 (canonical copy; src/.../LICENSE.txt mirrors it)
 .github/workflows/
   build.yml                          CI build + artifact
-  release.yml                        Tag -> GitHub Release with the .vsix attached
+  release.yml                        Tag -> version stamp -> GitHub Release -> Marketplace
+vs-publish.json                      VsixPublisher manifest (publisher, slug, categories)
+marketplace-overview.md              Listing page shown on the Marketplace
 src/MasmSyntaxHighlight/
   MasmSyntaxHighlight.csproj          VSIX project (VS 2022, .NET Framework 4.7.2)
   source.extension.vsixmanifest       Extension manifest (MEF component asset)

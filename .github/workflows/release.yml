@@ -75,3 +75,44 @@ jobs:
           name: ${{ steps.ver.outputs.tag }}
           files: ${{ steps.vsix.outputs.path }}
           generate_release_notes: true
+
+      # ---- Visual Studio Marketplace -----------------------------------------------
+      # Runs only when the repository secret VS_MARKETPLACE_PAT is set (an Azure DevOps
+      # PAT with the Marketplace > Manage scope for all accessible organizations).
+      # Uses vs-publish.json + marketplace-overview.md at the repo root.
+      - name: Check for Marketplace token
+        id: pat
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.VS_MARKETPLACE_PAT }}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::VS_MARKETPLACE_PAT not set - skipping Marketplace publish."
+          fi
+
+      - name: Publish to Visual Studio Marketplace
+        if: steps.pat.outputs.present == 'true'
+        shell: pwsh
+        env:
+          VS_MARKETPLACE_PAT: ${{ secrets.VS_MARKETPLACE_PAT }}
+        run: |
+          $candidates = @(
+            'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VSSDK\VisualStudioIntegration\Tools\Bin\VsixPublisher.exe',
+            'C:\Program Files\Microsoft Visual Studio\2022\Professional\VSSDK\VisualStudioIntegration\Tools\Bin\VsixPublisher.exe',
+            'C:\Program Files\Microsoft Visual Studio\2022\Community\VSSDK\VisualStudioIntegration\Tools\Bin\VsixPublisher.exe'
+          )
+          $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $exe) {
+            $exe = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022' -Recurse -Filter VsixPublisher.exe -ErrorAction SilentlyContinue |
+                    Select-Object -First 1).FullName
+          }
+          if (-not $exe) { throw 'VsixPublisher.exe not found on the runner' }
+
+          Write-Host "Using $exe"
+          & $exe publish `
+            -payload         '${{ steps.vsix.outputs.path }}' `
+            -publishManifest 'vs-publish.json' `
+            -personalAccessToken $env:VS_MARKETPLACE_PAT `
+            -ignoreWarnings 'VSIXValidatorWarning01,VSIXValidatorWarning02'
+          if ($LASTEXITCODE -ne 0) { throw "VsixPublisher exited with $LASTEXITCODE" }
