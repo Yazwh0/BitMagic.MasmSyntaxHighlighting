@@ -35,8 +35,17 @@ definition: `mov r8, offset gBuf`, `dd helper` (a function-pointer table), `SIZE
 `PROTO`'d API in `call MessageBoxA`, and the struct type / field in `[rbx].WNDCLASS.style`.
 Combined with the `call`/`invoke`/`jmp`/`jCC` heuristics, most references light up. `INCLUDE`
 paths resolve relative to the including file and to `%INCLUDE%`; included files are read from
-disk (last saved state) and cached by write time. The table is flat (no scopes), so a short
-field name like `x` shared with an unrelated identifier can bleed colour.
+disk (last saved state) and cached by write time.
+
+Definitions also flow the **other way**: a file with no `INCLUDE`s of its own that is pulled in
+by a parent (`Core.asm` includes `Io.asm` and `Uart.asm`) still sees what the parent's other
+includes define - just as MASM does, since it concatenates the text. The containing project
+tree (up to the nearest `.sln` / `.vcxproj` / `.git`) is scanned for files that `INCLUDE` the
+one being edited, and everything *those* parents include is folded in. When a name is both a
+struct type and a field (`state.uart` where a `uart` struct also exists), the type wins.
+
+The table is flat (no scopes), so a short field name like `x` shared with an unrelated
+identifier can bleed colour.
 
 Keyword matching is **case-insensitive** (as MASM is). Words that are both an instruction and
 an operator (`and`, `or`, `xor`, `not`, `shl`, `shr`) are coloured as an instruction only when

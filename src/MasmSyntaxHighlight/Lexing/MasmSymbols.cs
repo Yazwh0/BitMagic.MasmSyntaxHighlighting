@@ -42,6 +42,15 @@ namespace MasmSyntaxHighlight.Lexing
                 map[name] = kind;
         }
 
+        /// <summary>
+        /// Adds <paramref name="name"/> to <paramref name="map"/>, keeping the higher-ranked kind
+        /// when the name is already present (see <see cref="Rank"/>). Used when merging definitions
+        /// gathered from several <c>INCLUDE</c>d files, where a struct type and a same-named field
+        /// can both appear.
+        /// </summary>
+        public static void Merge(Dictionary<string, MasmTokenKind> map, string name, MasmTokenKind kind)
+            => Offer(map, name, kind);
+
         /// <summary>Builds a name -&gt; kind map of every definition in <paramref name="tokens"/>.</summary>
         public static Dictionary<string, MasmTokenKind> CollectDefinitions(
             IReadOnlyList<MasmToken> tokens, string text)

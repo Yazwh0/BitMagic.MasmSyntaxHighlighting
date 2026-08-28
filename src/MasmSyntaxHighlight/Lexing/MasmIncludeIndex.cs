@@ -6,8 +6,24 @@ using System.Text.RegularExpressions;
 namespace MasmSyntaxHighlight.Lexing
 {
     /// <summary>
-    /// Collects symbol definitions from the files reached through <c>INCLUDE</c> directives so
-    /// that types, prototypes and constants declared in headers colour when referenced.
+    /// Collects symbol definitions visible to a MASM source file so that types, prototypes and
+    /// constants declared elsewhere colour when referenced.
+    ///
+    /// Two directions are followed:
+    /// <list type="bullet">
+    /// <item><description>
+    /// <b>Down</b> - files reached through this file's own <c>INCLUDE</c> directives.
+    /// </description></item>
+    /// <item><description>
+    /// <b>Up and across</b> - a file that is pulled in by <c>INCLUDE</c> from a parent (with no
+    /// <c>INCLUDE</c> of its own) still sees everything that parent includes, because MASM
+    /// concatenates the text. So the containing project tree is scanned for files that
+    /// <c>INCLUDE</c> this one (directly or transitively), and every file <em>those</em> parents
+    /// include is folded in too. This is why the <c>uart</c> struct from <c>Uart.asm</c> colours
+    /// inside <c>Io.asm</c> even though <c>Io.asm</c> has no includes - <c>Core.asm</c> includes
+    /// both.
+    /// </description></item>
+    /// </list>
     ///
     /// Files are resolved relative to the including file's directory (and the <c>%INCLUDE%</c>
     /// search path), lexed once, and cached by last-write time. Reads come from disk, so a
@@ -20,6 +36,12 @@ namespace MasmSyntaxHighlight.Lexing
         private const int MaxSymbols = 200_000;
         private const int MaxCachedFiles = 512;
 
+        // Reverse (parent) search bounds.
+        private const int MaxAncestorClimb = 4;    // parent directories to climb looking for a project root
+        private const int MaxScanFiles = 4000;     // .asm / .inc files examined during the parent search
+        private const int MaxAncestors = 128;      // parent files whose includes get folded in
+        private const int MaxAncestorDepth = 16;   // levels of the reverse include graph to walk
+
         // Everything after "INCLUDE " up to a ';' comment or the end of the line; trailing
         // whitespace is trimmed in ExtractRawIncludes. No end anchor - $ is unreliable with
         // CRLF line endings. "INCLUDELIB" does not match (the [ \t]+ after INCLUDE fails).
@@ -30,7 +52,7 @@ namespace MasmSyntaxHighlight.Lexing
         private sealed class FileEntry
         {
             public DateTime WriteTimeUtc;
-            public Dictionary<string, MasmTokenKind> Symbols;
+            public Dictionary<string, MasmTokenKind> Symbols; // null until symbols are actually needed
             public List<string> RawIncludes;
             public string Directory;
         }
@@ -39,11 +61,23 @@ namespace MasmSyntaxHighlight.Lexing
         private static readonly Dictionary<string, FileEntry> Cache =
             new Dictionary<string, FileEntry>(StringComparer.OrdinalIgnoreCase);
 
+        // The reverse include graph barely changes while typing, and rebuilding it means globbing
+        // a directory tree, so the resolved ancestor set is memoised per file for a few seconds.
+        private static readonly TimeSpan AncestorTtl = TimeSpan.FromSeconds(5);
+        private static readonly Dictionary<string, (DateTime StampUtc, string[] Ancestors)> AncestorCache =
+            new Dictionary<string, (DateTime, string[])>(StringComparer.OrdinalIgnoreCase);
+
         private static readonly string[] EnvIncludeDirs = BuildEnvIncludeDirs();
 
+        private static readonly HashSet<string> SkipDirNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "bin", "obj", "packages", "node_modules", "x64", "x86", "debug", "release", ".vs", ".git",
+        };
+
         /// <summary>
-        /// Returns a name -&gt; kind map of every definition reachable via <c>INCLUDE</c> from
-        /// <paramref name="rootText"/>. Empty when the buffer is not backed by a file on disk.
+        /// Returns a name -&gt; kind map of every definition visible to the file at
+        /// <paramref name="rootFilePath"/> - through its own <c>INCLUDE</c>s and through any
+        /// parent file that includes it. Empty when the buffer is not backed by a file on disk.
         /// </summary>
         public static Dictionary<string, MasmTokenKind> Collect(string rootFilePath, string rootText)
         {
@@ -51,14 +85,35 @@ namespace MasmSyntaxHighlight.Lexing
             if (string.IsNullOrEmpty(rootFilePath) || string.IsNullOrEmpty(rootText))
                 return accumulated;
 
+            string rootFull;
             string rootDir;
-            try { rootDir = Path.GetDirectoryName(rootFilePath); }
-            catch { return accumulated; }
+            try
+            {
+                rootFull = Path.GetFullPath(rootFilePath);
+                rootDir = Path.GetDirectoryName(rootFull);
+            }
+            catch
+            {
+                return accumulated;
+            }
 
-            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { rootFull };
             var queue = new Queue<PendingInclude>();
+
             foreach (string raw in ExtractRawIncludes(rootText))
                 queue.Enqueue(new PendingInclude(raw, rootDir, 1));
+
+            // Parents: files elsewhere in the project that INCLUDE this one. Their own
+            // definitions, and everything they include, are visible here.
+            foreach (string ancestor in GetAncestors(rootFull, rootDir))
+            {
+                FileEntry entry = Load(ancestor);
+                if (entry == null) continue;
+
+                MergeSymbols(accumulated, entry.Symbols);
+                foreach (string childRaw in entry.RawIncludes)
+                    queue.Enqueue(new PendingInclude(childRaw, entry.Directory, 1));
+            }
 
             while (queue.Count > 0)
             {
@@ -71,18 +126,26 @@ namespace MasmSyntaxHighlight.Lexing
                 FileEntry entry = Load(full);
                 if (entry == null) continue;
 
-                foreach (KeyValuePair<string, MasmTokenKind> pair in entry.Symbols)
-                {
-                    if (accumulated.Count >= MaxSymbols) break;
-                    if (!accumulated.ContainsKey(pair.Key))
-                        accumulated[pair.Key] = pair.Value;
-                }
+                MergeSymbols(accumulated, entry.Symbols);
 
                 foreach (string childRaw in entry.RawIncludes)
                     queue.Enqueue(new PendingInclude(childRaw, entry.Directory, pending.Depth + 1));
             }
 
             return accumulated;
+        }
+
+        private static void MergeSymbols(
+            Dictionary<string, MasmTokenKind> into, Dictionary<string, MasmTokenKind> from)
+        {
+            if (from == null) return;
+            foreach (KeyValuePair<string, MasmTokenKind> pair in from)
+            {
+                if (into.Count >= MaxSymbols && !into.ContainsKey(pair.Key)) break;
+                // Higher-ranked kind wins: a struct type seen in one header should not be
+                // masked by a same-named field declared in another (e.g. state.uart).
+                MasmSymbols.Merge(into, pair.Key, pair.Value);
+            }
         }
 
         private readonly struct PendingInclude
@@ -98,6 +161,177 @@ namespace MasmSyntaxHighlight.Lexing
                 Depth = depth;
             }
         }
+
+        // --- reverse include graph -------------------------------------------------------------
+
+        private static string[] GetAncestors(string targetFull, string startDir)
+        {
+            DateTime now = DateTime.UtcNow;
+            lock (Gate)
+            {
+                if (AncestorCache.TryGetValue(targetFull, out var cached)
+                    && now - cached.StampUtc < AncestorTtl)
+                    return cached.Ancestors;
+            }
+
+            string[] ancestors;
+            try
+            {
+                ancestors = FindAncestorFiles(targetFull, startDir);
+            }
+            catch
+            {
+                ancestors = Array.Empty<string>();
+            }
+
+            lock (Gate)
+            {
+                AncestorCache[targetFull] = (now, ancestors);
+                if (AncestorCache.Count > MaxCachedFiles)
+                    AncestorCache.Clear();
+            }
+            return ancestors;
+        }
+
+        private static string[] FindAncestorFiles(string targetFull, string startDir)
+        {
+            if (string.IsNullOrEmpty(startDir)) return Array.Empty<string>();
+
+            string[] candidates = EnumerateProjectFiles(startDir);
+            if (candidates.Length == 0) return Array.Empty<string>();
+
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var remaining = new List<string>(candidates.Length);
+            foreach (string c in candidates)
+                if (!c.Equals(targetFull, StringComparison.OrdinalIgnoreCase))
+                    remaining.Add(c);
+
+            // Reverse breadth-first: a file is an ancestor if one of its resolved INCLUDE targets
+            // is already in the frontier (which starts as just the file we care about). Newly
+            // found ancestors form the next frontier, so parents-of-parents are picked up too.
+            var frontier = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { targetFull };
+
+            for (int depth = 0;
+                 depth < MaxAncestorDepth && frontier.Count > 0 && result.Count < MaxAncestors;
+                 depth++)
+            {
+                var next = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                for (int i = remaining.Count - 1; i >= 0; i--)
+                {
+                    string candidate = remaining[i];
+                    FileEntry entry = LoadIncludesOnly(candidate);
+                    if (entry == null)
+                    {
+                        remaining.RemoveAt(i);
+                        continue;
+                    }
+
+                    bool hits = false;
+                    foreach (string raw in entry.RawIncludes)
+                    {
+                        string resolved = ResolvePath(raw, entry.Directory);
+                        if (resolved != null && frontier.Contains(resolved))
+                        {
+                            hits = true;
+                            break;
+                        }
+                    }
+
+                    if (hits)
+                    {
+                        result.Add(candidate);
+                        next.Add(candidate);
+                        remaining.RemoveAt(i);
+                        if (result.Count >= MaxAncestors) break;
+                    }
+                }
+
+                frontier = next;
+            }
+
+            var array = new string[result.Count];
+            result.CopyTo(array);
+            return array;
+        }
+
+        private static string[] EnumerateProjectFiles(string startDir)
+        {
+            // Climb up to a directory that looks like a project or repo root (or run out of
+            // climbs), then walk everything beneath it for .asm / .inc files.
+            string root = startDir;
+            for (int i = 0; i < MaxAncestorClimb; i++)
+            {
+                if (LooksLikeProjectRoot(root)) break;
+                string parent;
+                try { parent = Path.GetDirectoryName(root); }
+                catch { break; }
+                if (string.IsNullOrEmpty(parent) ||
+                    parent.Equals(root, StringComparison.OrdinalIgnoreCase))
+                    break;
+                root = parent;
+            }
+
+            var files = new List<string>();
+            var dirs = new Stack<string>();
+            dirs.Push(root);
+
+            while (dirs.Count > 0 && files.Count < MaxScanFiles)
+            {
+                string dir = dirs.Pop();
+
+                string[] here;
+                try { here = Directory.GetFiles(dir); }
+                catch { continue; }
+
+                foreach (string f in here)
+                {
+                    if (HasAsmExtension(f)) files.Add(f);
+                    if (files.Count >= MaxScanFiles) break;
+                }
+
+                string[] subdirs;
+                try { subdirs = Directory.GetDirectories(dir); }
+                catch { continue; }
+
+                foreach (string d in subdirs)
+                {
+                    string name = Path.GetFileName(d);
+                    if (name.Length == 0 || name[0] == '.' || SkipDirNames.Contains(name))
+                        continue;
+                    dirs.Push(d);
+                }
+            }
+
+            return files.ToArray();
+        }
+
+        private static bool LooksLikeProjectRoot(string dir)
+        {
+            try
+            {
+                if (Directory.Exists(Path.Combine(dir, ".git")) ||
+                    File.Exists(Path.Combine(dir, ".git")))
+                    return true;
+                if (Directory.GetFiles(dir, "*.sln").Length > 0) return true;
+                if (Directory.GetFiles(dir, "*.vcxproj").Length > 0) return true;
+                if (Directory.GetFiles(dir, "*.csproj").Length > 0) return true;
+            }
+            catch
+            {
+                // unreadable directory - treat as not-a-root and keep climbing
+            }
+            return false;
+        }
+
+        private static bool HasAsmExtension(string path)
+        {
+            string ext = Path.GetExtension(path);
+            return ext.Equals(".asm", StringComparison.OrdinalIgnoreCase)
+                || ext.Equals(".inc", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // --- shared file loading -------------------------------------------------------------
 
         private static List<string> ExtractRawIncludes(string text)
         {
@@ -142,7 +376,11 @@ namespace MasmSyntaxHighlight.Lexing
             return null;
         }
 
-        private static FileEntry Load(string path)
+        private static FileEntry Load(string path) => GetEntry(path, needSymbols: true);
+
+        private static FileEntry LoadIncludesOnly(string path) => GetEntry(path, needSymbols: false);
+
+        private static FileEntry GetEntry(string path, bool needSymbols)
         {
             try
             {
@@ -152,25 +390,39 @@ namespace MasmSyntaxHighlight.Lexing
 
                 lock (Gate)
                 {
-                    if (Cache.TryGetValue(path, out FileEntry cached) && cached.WriteTimeUtc == writeTime)
+                    if (Cache.TryGetValue(path, out FileEntry cached)
+                        && cached.WriteTimeUtc == writeTime
+                        && (!needSymbols || cached.Symbols != null))
                         return cached;
                 }
 
                 string text = File.ReadAllText(path);
-                List<MasmToken> tokens = new MasmLexer(text).Tokenize();
 
                 var entry = new FileEntry
                 {
                     WriteTimeUtc = writeTime,
-                    Symbols = MasmSymbols.CollectDefinitions(tokens, text),
                     RawIncludes = ExtractRawIncludes(text),
                     Directory = Path.GetDirectoryName(path),
                 };
+
+                if (needSymbols)
+                {
+                    List<MasmToken> tokens = new MasmLexer(text).Tokenize();
+                    entry.Symbols = MasmSymbols.CollectDefinitions(tokens, text);
+                }
 
                 lock (Gate)
                 {
                     if (Cache.Count >= MaxCachedFiles && !Cache.ContainsKey(path))
                         Cache.Clear();
+
+                    // Don't downgrade an entry that already has symbols with a light one.
+                    if (Cache.TryGetValue(path, out FileEntry existing)
+                        && existing.WriteTimeUtc == writeTime
+                        && existing.Symbols != null
+                        && entry.Symbols == null)
+                        return existing;
+
                     Cache[path] = entry;
                 }
 
