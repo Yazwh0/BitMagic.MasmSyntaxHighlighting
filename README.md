@@ -1,9 +1,9 @@
 # BitMagic MASM (ml64) Syntax Highlighting
 
 A Visual Studio 2022 extension for Microsoft Macro Assembler 64-bit (`ml64.exe`) source files.
-It provides **syntax colouring**, **Comment / Uncomment**, **outlining** (collapsible blocks),
-**brace matching** and **smart indent** - and nothing else: no build integration, IntelliSense
-or diagnostics.
+It provides **syntax colouring**, **Go To Definition** (Ctrl+Click), **Comment / Uncomment**,
+**outlining** (collapsible blocks), **brace matching** and **smart indent** - and nothing else:
+no build integration, IntelliSense or diagnostics.
 
 ## What it colours
 
@@ -55,6 +55,29 @@ In struct / record member access - a `.` written directly against a `]`, `)`, re
 identifier, e.g. `lea rcx, [rdx].Point.data_dir` - the `.` is an operator and each name is
 resolved against the symbol table (falling back to a plain identifier), *not* read as a
 directive. A leading `.` with whitespace before it (`[rdx] .field`) is still a directive.
+
+## Go To Definition
+
+**Ctrl+Click** an identifier (or Ctrl+hover to underline it first) to jump to where it is
+defined. It resolves the same names the symbol pass colours:
+
+| Reference | Jumps to |
+|-----------|----------|
+| `call foo` / `invoke foo` / `foo` used as a proc | `foo PROC` (its `PROTO` only if there is no body) |
+| `[rbx].Point.field` | `Point STRUCT` / `RECORD`, then the `field` line inside it |
+| `mov rax, offset gBuf` / `dd helper` | the data (`gBuf db ...`) or proc definition |
+| `SIZEOF Widget`, `MAXLEN` | the `STRUCT` / `EQU` / `=` definition |
+| `jmp done` / `jz retry` / `loop next` | the `done:` / `retry:` / `next:` **in the same proc** |
+
+Labels are resolved **proc-first**: a reused local label (`next:` in several procs) goes to the
+one in the proc you are calling from. A `::` label and any label written outside a proc are
+module scope. Definitions in `INCLUDE`d files (and in files pulled in alongside this one by a
+parent - see above) are valid targets and open that file; a proc-local label from another file
+is not. Targets in other files use that file's **last-saved** contents, so an offset can be
+stale if the file is open with unsaved edits.
+
+Only Ctrl+Click is wired. F12 and the Go To Declaration / Implementation menu items need a
+command filter that is not implemented yet.
 
 ## Comment / Uncomment
 
@@ -290,10 +313,14 @@ src/MasmSyntaxHighlight/
   Lexing/
     MasmTokenKind.cs                  Token kinds
     MasmToken.cs                      Token struct (offset/length/kind)
+    MasmSymbolDef.cs                  Definition site (name/kind/location/proc scope)
     MasmKeywords.cs                   Register / mnemonic / directive / type / operator lists
     MasmLexer.cs                      Hand-written MASM lexer
     MasmSymbols.cs                    Resolve references to definitions (this file + includes)
     MasmIncludeIndex.cs              Cached scan of INCLUDEd files for their definitions
+  Navigation/
+    MasmDefinitionIndex.cs           Snapshot-cached "identifier at point -> definition"
+    MasmNavigableSymbolSource.cs      INavigableSymbolSource - Ctrl+Click Go To Definition
 samples/demo.asm                      Eyeball test file
 ```
 

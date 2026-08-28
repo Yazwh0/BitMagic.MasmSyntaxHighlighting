@@ -52,7 +52,7 @@ namespace MasmSyntaxHighlight.Lexing
         private sealed class FileEntry
         {
             public DateTime WriteTimeUtc;
-            public Dictionary<string, MasmTokenKind> Symbols; // null until symbols are actually needed
+            public List<MasmSymbolDef> Defs; // null until symbols are actually needed
             public List<string> RawIncludes;
             public string Directory;
         }
@@ -85,6 +85,32 @@ namespace MasmSyntaxHighlight.Lexing
             if (string.IsNullOrEmpty(rootFilePath) || string.IsNullOrEmpty(rootText))
                 return accumulated;
 
+            Walk(rootFilePath, rootText, entry => MergeSymbols(accumulated, entry.Defs));
+            return accumulated;
+        }
+
+        /// <summary>
+        /// Like <see cref="Collect"/> but returns every visible definition <em>with its
+        /// location</em> (for Go To Definition). A proc-local label from another file is dropped -
+        /// it is not visible outside its own proc.
+        /// </summary>
+        public static List<MasmSymbolDef> CollectDefs(string rootFilePath, string rootText)
+        {
+            var accumulated = new List<MasmSymbolDef>();
+            if (string.IsNullOrEmpty(rootFilePath) || string.IsNullOrEmpty(rootText))
+                return accumulated;
+
+            Walk(rootFilePath, rootText, entry => AddVisibleDefs(accumulated, entry.Defs));
+            return accumulated;
+        }
+
+        /// <summary>
+        /// Breadth-first visit of every file visible to the root: its own <c>INCLUDE</c>s
+        /// (transitively) and every file pulled in alongside it by a parent that includes it.
+        /// <paramref name="onFile"/> is called once per successfully loaded file.
+        /// </summary>
+        private static void Walk(string rootFilePath, string rootText, Action<FileEntry> onFile)
+        {
             string rootFull;
             string rootDir;
             try
@@ -94,7 +120,7 @@ namespace MasmSyntaxHighlight.Lexing
             }
             catch
             {
-                return accumulated;
+                return;
             }
 
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { rootFull };
@@ -110,15 +136,16 @@ namespace MasmSyntaxHighlight.Lexing
                 FileEntry entry = Load(ancestor);
                 if (entry == null) continue;
 
-                MergeSymbols(accumulated, entry.Symbols);
+                onFile(entry);
                 foreach (string childRaw in entry.RawIncludes)
                     queue.Enqueue(new PendingInclude(childRaw, entry.Directory, 1));
             }
 
+            int produced = 0;
             while (queue.Count > 0)
             {
                 PendingInclude pending = queue.Dequeue();
-                if (pending.Depth > MaxDepth || accumulated.Count >= MaxSymbols) continue;
+                if (pending.Depth > MaxDepth || produced >= MaxSymbols) continue;
 
                 string full = ResolvePath(pending.RawPath, pending.BaseDirectory);
                 if (full == null || !visited.Add(full)) continue;
@@ -126,25 +153,34 @@ namespace MasmSyntaxHighlight.Lexing
                 FileEntry entry = Load(full);
                 if (entry == null) continue;
 
-                MergeSymbols(accumulated, entry.Symbols);
+                onFile(entry);
+                produced += entry.Defs?.Count ?? 0;
 
                 foreach (string childRaw in entry.RawIncludes)
                     queue.Enqueue(new PendingInclude(childRaw, entry.Directory, pending.Depth + 1));
             }
-
-            return accumulated;
         }
 
-        private static void MergeSymbols(
-            Dictionary<string, MasmTokenKind> into, Dictionary<string, MasmTokenKind> from)
+        private static void MergeSymbols(Dictionary<string, MasmTokenKind> into, List<MasmSymbolDef> from)
         {
             if (from == null) return;
-            foreach (KeyValuePair<string, MasmTokenKind> pair in from)
+            foreach (MasmSymbolDef def in from)
             {
-                if (into.Count >= MaxSymbols && !into.ContainsKey(pair.Key)) break;
+                if (into.Count >= MaxSymbols && !into.ContainsKey(def.Name)) break;
                 // Higher-ranked kind wins: a struct type seen in one header should not be
                 // masked by a same-named field declared in another (e.g. state.uart).
-                MasmSymbols.Merge(into, pair.Key, pair.Value);
+                MasmSymbols.Merge(into, def.Name, def.Kind);
+            }
+        }
+
+        private static void AddVisibleDefs(List<MasmSymbolDef> into, List<MasmSymbolDef> from)
+        {
+            if (from == null) return;
+            foreach (MasmSymbolDef def in from)
+            {
+                if (into.Count >= MaxSymbols) break;
+                if (def.IsProcLocal) continue; // another file's proc-local label is not visible here
+                into.Add(def);
             }
         }
 
@@ -392,7 +428,7 @@ namespace MasmSyntaxHighlight.Lexing
                 {
                     if (Cache.TryGetValue(path, out FileEntry cached)
                         && cached.WriteTimeUtc == writeTime
-                        && (!needSymbols || cached.Symbols != null))
+                        && (!needSymbols || cached.Defs != null))
                         return cached;
                 }
 
@@ -408,7 +444,7 @@ namespace MasmSyntaxHighlight.Lexing
                 if (needSymbols)
                 {
                     List<MasmToken> tokens = new MasmLexer(text).Tokenize();
-                    entry.Symbols = MasmSymbols.CollectDefinitions(tokens, text);
+                    entry.Defs = MasmSymbols.CollectDefinitionsWithLocations(tokens, text, path);
                 }
 
                 lock (Gate)
@@ -419,8 +455,8 @@ namespace MasmSyntaxHighlight.Lexing
                     // Don't downgrade an entry that already has symbols with a light one.
                     if (Cache.TryGetValue(path, out FileEntry existing)
                         && existing.WriteTimeUtc == writeTime
-                        && existing.Symbols != null
-                        && entry.Symbols == null)
+                        && existing.Defs != null
+                        && entry.Defs == null)
                         return existing;
 
                     Cache[path] = entry;

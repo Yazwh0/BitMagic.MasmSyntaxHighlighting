@@ -75,7 +75,10 @@
     <Compile Include="Lexing\MasmKeywords.cs" />
     <Compile Include="Lexing\MasmLexer.cs" />
     <Compile Include="Lexing\MasmSymbols.cs" />
+    <Compile Include="Lexing\MasmSymbolDef.cs" />
     <Compile Include="Lexing\MasmIncludeIndex.cs" />
+    <Compile Include="Navigation\MasmDefinitionIndex.cs" />
+    <Compile Include="Navigation\MasmNavigableSymbolSource.cs" />
   </ItemGroup>
 
   <ItemGroup>
