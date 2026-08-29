@@ -51,6 +51,7 @@
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Drawing" />
     <Reference Include="System.ComponentModel.Composition" />
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
@@ -62,9 +63,15 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="MasmContentTypes.cs" />
     <Compile Include="Commands\MasmCommentCommandHandler.cs" />
+    <Compile Include="Completion\MasmCompletionSource.cs" />
+    <Compile Include="Diagnostics\MasmErrorListDataSource.cs" />
     <Compile Include="Editing\MasmSmartIndent.cs" />
+    <Compile Include="Editing\MasmAutoOutdent.cs" />
     <Compile Include="Tagging\MasmOutliningTagger.cs" />
     <Compile Include="Tagging\MasmBraceMatchingTagger.cs" />
+    <Compile Include="Tagging\MasmReferenceHighlightTagger.cs" />
+    <Compile Include="Tagging\MasmDiagnosticsTagger.cs" />
+    <Compile Include="QuickInfo\MasmQuickInfoSource.cs" />
     <Compile Include="Classification\MasmClassificationNames.cs" />
     <Compile Include="Classification\MasmClassificationTypes.cs" />
     <Compile Include="Classification\MasmClassificationFormats.cs" />
@@ -77,8 +84,14 @@
     <Compile Include="Lexing\MasmSymbols.cs" />
     <Compile Include="Lexing\MasmSymbolDef.cs" />
     <Compile Include="Lexing\MasmIncludeIndex.cs" />
+    <Compile Include="Navigation\MasmBufferServices.cs" />
+    <Compile Include="Navigation\MasmSourceText.cs" />
     <Compile Include="Navigation\MasmDefinitionIndex.cs" />
+    <Compile Include="Navigation\MasmNavigator.cs" />
     <Compile Include="Navigation\MasmNavigableSymbolSource.cs" />
+    <Compile Include="Navigation\MasmGoToDefinitionCommandFilter.cs" />
+    <Compile Include="Navigation\MasmPeekableItemSource.cs" />
+    <Compile Include="Navigation\MasmNavigateToItemProvider.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -111,6 +124,9 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.0.32112.339">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.VisualStudio.Language.NavigateTo.Interfaces" Version="17.0.491">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
   </ItemGroup>

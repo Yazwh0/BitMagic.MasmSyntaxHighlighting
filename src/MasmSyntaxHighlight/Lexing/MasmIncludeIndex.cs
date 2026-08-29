@@ -105,6 +105,37 @@ namespace MasmSyntaxHighlight.Lexing
         }
 
         /// <summary>
+        /// Every non-proc-local definition in the <c>.asm</c> / <c>.inc</c> files under
+        /// <paramref name="startDir"/> (after climbing to a project / repo root), for the
+        /// Go To All / Navigate To symbol search. Files are lexed once and cached by last-write
+        /// time, shared with the <c>INCLUDE</c> index. Bounded by <see cref="MaxScanFiles"/> and
+        /// <see cref="MaxSymbols"/>.
+        /// </summary>
+        public static List<MasmSymbolDef> CollectProjectDefs(string startDir)
+        {
+            var result = new List<MasmSymbolDef>();
+            if (string.IsNullOrEmpty(startDir)) return result;
+
+            string[] files;
+            try { files = EnumerateProjectFiles(startDir); }
+            catch { return result; }
+
+            foreach (string file in files)
+            {
+                FileEntry entry = Load(file);
+                if (entry?.Defs == null) continue;
+
+                foreach (MasmSymbolDef def in entry.Defs)
+                {
+                    if (def.IsProcLocal) continue; // a proc-local label is not a project-wide symbol
+                    result.Add(def);
+                    if (result.Count >= MaxSymbols) return result;
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
         /// Breadth-first visit of every file visible to the root: its own <c>INCLUDE</c>s
         /// (transitively) and every file pulled in alongside it by a parent that includes it.
         /// <paramref name="onFile"/> is called once per successfully loaded file.

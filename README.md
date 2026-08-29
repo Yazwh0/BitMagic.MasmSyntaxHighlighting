@@ -1,9 +1,12 @@
 # BitMagic MASM (ml64) Syntax Highlighting
 
 A Visual Studio 2022 extension for Microsoft Macro Assembler 64-bit (`ml64.exe`) source files.
-It provides **syntax colouring**, **Go To Definition** (Ctrl+Click), **Comment / Uncomment**,
-**outlining** (collapsible blocks), **brace matching** and **smart indent** - and nothing else:
-no build integration, IntelliSense or diagnostics.
+It provides **syntax colouring**, **Go To Definition** (Ctrl+Click / F12), **QuickInfo**
+tooltips, **reference highlighting**, **Peek Definition**, **Go To All** symbol search,
+**statement completion**, structural **diagnostics**, **Comment / Uncomment**, **outlining**
+(collapsible blocks), **brace matching** and **smart indent** (with auto-outdent of closing
+keywords) - but no build integration, no member/parameter IntelliSense, and no navigation bar
+or Find All References window.
 
 ## What it colours
 
@@ -58,8 +61,10 @@ directive. A leading `.` with whitespace before it (`[rdx] .field`) is still a d
 
 ## Go To Definition
 
-**Ctrl+Click** an identifier (or Ctrl+hover to underline it first) to jump to where it is
-defined. It resolves the same names the symbol pass colours:
+**Ctrl+Click** an identifier (or Ctrl+hover to underline it first), press **F12**, or pick
+**Go To Definition** / **Go To Declaration** / **Go To Implementation** from the editor's
+right-click menu, to jump to where the identifier is defined. It resolves the same names the
+symbol pass colours:
 
 | Reference | Jumps to |
 |-----------|----------|
@@ -76,8 +81,58 @@ parent - see above) are valid targets and open that file; a proc-local label fro
 is not. Targets in other files use that file's **last-saved** contents, so an offset can be
 stale if the file is open with unsaved edits.
 
-Only Ctrl+Click is wired. F12 and the Go To Declaration / Implementation menu items need a
-command filter that is not implemented yet.
+**Go To Declaration** prefers a proc's `PROTO` when it has one; **Go To Definition** / **F12**
+and **Go To Implementation** prefer the `PROC` body.
+
+**Peek Definition** (Alt+F12) shows the same target inline without leaving the file.
+
+## QuickInfo
+
+Hovering an identifier shows what it is - the kind of symbol (`procedure`, `type`,
+`constant`, `data`, `label`), its name, the line it is defined on, and, when it comes from an
+`INCLUDE`d file, which file. Same resolution as Go To Definition.
+
+## Reference highlighting
+
+Put the caret on a symbol and every other occurrence that binds to the *same* definition is
+boxed (using the editor's standard highlighted-reference colour). A reused proc-local label
+only lights up within its own proc; a same-named label in another proc is left alone.
+
+## Go To All / Go To Symbol
+
+Ctrl+T (or Ctrl+;) lists MASM procedures, structures, constants, data and module-scope labels
+from every `.asm` / `.inc` file under the solution (or repo) root, matched with VS's normal
+fuzzy search. Selecting one opens its file at the definition. Proc-local labels are not
+included. Files are read from disk (last-saved contents) and cached.
+
+There is still no dedicated **Find All References** window and no **navigation bar** (the
+type/member dropdowns) - both need the extension to register a language service, which it
+deliberately does not.
+
+## Statement completion
+
+Typing an identifier offers instruction mnemonics, registers, directives, type keywords and
+operators (the same word lists the lexer uses), plus every symbol the buffer can see - procs,
+structs, constants, data and labels from this file and its `INCLUDE`s. It is suppressed inside
+a comment or a string. There is no member completion after `.` (e.g. `[rax].Point.` does not
+list `Point`'s fields) and no snippet or parameter help.
+
+## Diagnostics
+
+A red squiggle - and a matching entry in the **Error List** (double-click to jump) - marks the
+few structural mistakes `ml64` itself rejects, found from the token stream alone; no symbol
+resolution, so nothing here fires on an unknown name:
+
+* a block opener with no matching closer (`PROC` without `ENDP`, `STRUCT` without `ENDS`,
+  `.IF` without `.ENDIF`, `MACRO`/`REPT`/... without `ENDM`, `.WHILE` without `.ENDW`,
+  `.REPEAT` without `.UNTIL`);
+* a closer with no opener;
+* a `PROC` / `STRUCT` / `SEGMENT` whose name on the closing line does not match the opener.
+
+Nesting is tracked, so one missing `ENDIF` in a stack of them is pinned to the right `IF`.
+A macro body that expands to an unbalanced opener/closer can produce a false positive. Error
+List entries appear only while the file is open in the editor - this is a linter, not a build
+step.
 
 ## Comment / Uncomment
 
@@ -120,8 +175,12 @@ Put the caret next to a `(` `)` `[` or `]` and it and its partner are boxed. Bra
 Pressing Enter keeps the previous non-blank line's indentation, and adds one level (your
 configured indent size) when that line opens a block: `PROC`, `MACRO`, `STRUC`/`STRUCT`/
 `UNION`, `SEGMENT`, `.IF`/`.ELSE`/`.ELSEIF`, `.WHILE`, `.REPEAT`, the `IF*` conditional-assembly
-directives, and the repeat blocks. It does **not** out-dent a closing keyword you type
-(`ENDP`, `.ENDIF`, ...) - use Backspace or Shift+Tab.
+directives, and the repeat blocks.
+
+As you finish typing a closing keyword (`ENDP`, `ENDS`, `ENDM`, `ENDIF`, `.ENDIF`, `.ENDW`,
+`.UNTIL`) or `ELSE` / `ELSEIF` / `.ELSE` / `.ELSEIF` on an otherwise empty line, that line is
+re-indented to line up with the matching opener (found by scanning back with nesting). Type
+anything else after the keyword and it is left alone.
 
 ## Requirements
 
@@ -278,8 +337,22 @@ needs to change.
 * `INCLUDE` symbols come from disk, so a header open with unsaved edits is seen in its last
   saved state, and editing a header does not recolour other open files until you touch them.
   `INCLUDE` paths passed only via `ml64 /I` (not `%INCLUDE%` or a relative path) are not found.
-* Smart indent adds a level after a block opener but does not out-dent the closing keyword you
-  type - Backspace or Shift+Tab. It is skipped for projection buffers (diff view, etc.).
+* Smart indent adds a level after a block opener; auto-outdent only fires while the closing
+  keyword is the *whole* line - once you type past it the line is left as is. Both are skipped
+  for projection buffers (diff view, etc.).
+* Reference highlighting and Go To All re-resolve each candidate through the same scoped
+  lookup as Go To Definition, so they agree with it; Go To All reads every project file from
+  disk (last-saved) and skips proc-local labels.
+* Completion is one flat list (keywords + every visible symbol) with no context filtering -
+  it will happily offer a register where only a label makes sense. It does not parse `.`
+  member access, so struct fields are not completed.
+* Diagnostics are token-only and cover block structure alone. They do not know about macros,
+  so a macro that expands to a lone `PROC` / `ENDIF` / ... can be flagged wrongly; there is
+  no diagnostic for undefined symbols, bad operands, or anything needing a real assembler.
+  The Error List source is fed by the editor tagger, so entries exist only for open files and
+  clear when the document closes.
+* No **Find All References** window and no **navigation bar** - both need a registered
+  language service (an old-style package), which the extension avoids; everything here is MEF.
 
 ## Project layout
 
@@ -299,11 +372,18 @@ src/MasmSyntaxHighlight/
   MasmContentTypes.cs                 "masm" content type + .asm/.inc mapping
   Commands/
     MasmCommentCommandHandler.cs      Comment / Uncomment / Toggle Line Comment
+  Completion/
+    MasmCompletionSource.cs           IAsyncCompletionSource - keyword + symbol completion
   Editing/
     MasmSmartIndent.cs               ISmartIndent - indent one level after a block opener
+    MasmAutoOutdent.cs               IChainedCommandHandler - outdent a closing keyword as typed
   Tagging/
     MasmOutliningTagger.cs            Collapsible regions for paired blocks and ;region
     MasmBraceMatchingTagger.cs        Highlights the () / [] pair next to the caret
+    MasmReferenceHighlightTagger.cs   Boxes every occurrence of the symbol under the caret
+    MasmDiagnosticsTagger.cs          IErrorTag - squiggles unbalanced / mismatched blocks
+  Diagnostics/
+    MasmErrorListDataSource.cs        ITableDataSource - the same diagnostics in the Error List
   Classification/
     MasmClassificationNames.cs        Name of the one custom classification (MASM Register)
     MasmClassificationTypes.cs        Registers "MASM/Register" (derives from Keyword)
@@ -319,8 +399,16 @@ src/MasmSyntaxHighlight/
     MasmSymbols.cs                    Resolve references to definitions (this file + includes)
     MasmIncludeIndex.cs              Cached scan of INCLUDEd files for their definitions
   Navigation/
-    MasmDefinitionIndex.cs           Snapshot-cached "identifier at point -> definition"
+    MasmBufferServices.cs             One shared MasmDefinitionIndex per buffer
+    MasmSourceText.cs                 Cached reads of INCLUDEd files (line/column lookup)
+    MasmDefinitionIndex.cs           Snapshot-cached resolve + find-all-occurrences
+    MasmNavigator.cs                  Shared "open file + move caret to a definition"
     MasmNavigableSymbolSource.cs      INavigableSymbolSource - Ctrl+Click Go To Definition
+    MasmGoToDefinitionCommandFilter.cs  IOleCommandTarget - F12 / Go To Definition menu items
+    MasmPeekableItemSource.cs         IPeekableItemSource - Alt+F12 Peek Definition
+    MasmNavigateToItemProvider.cs     INavigateToItemProviderFactory - Go To All symbol search
+  QuickInfo/
+    MasmQuickInfoSource.cs            IAsyncQuickInfoSource - hover tooltips
 samples/demo.asm                      Eyeball test file
 ```
 
