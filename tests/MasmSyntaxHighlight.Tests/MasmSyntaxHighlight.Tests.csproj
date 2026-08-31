@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>MasmSyntaxHighlight.Tests</AssemblyName>
+    <RootNamespace>MasmSyntaxHighlight.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    The lexer / symbol / struct / include / structural-analysis code has no Visual Studio
+    dependencies, so it is compiled straight into the test assembly (the same trick the
+    scratch LexTest harness uses). That keeps the tests a plain `dotnet test` with no VS SDK
+    and lets them see the `internal` types directly.
+
+    Lexing\*.cs is globbed on purpose - every file in that folder is VS-free today. If a new
+    Lexing file ever takes a `Microsoft.VisualStudio.*` dependency this project stops
+    compiling, which is the intended signal to split it or list files explicitly.
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\src\MasmSyntaxHighlight\Lexing\*.cs">
+      <Link>Lexing\%(Filename)%(Extension)</Link>
+    </Compile>
+    <Compile Include="..\..\src\MasmSyntaxHighlight\Tagging\MasmDiagnostic.cs">
+      <Link>Tagging\MasmDiagnostic.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\MasmSyntaxHighlight\Tagging\MasmStructuralAnalyzer.cs">
+      <Link>Tagging\MasmStructuralAnalyzer.cs</Link>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

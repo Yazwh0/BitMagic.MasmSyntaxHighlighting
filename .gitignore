@@ -3,6 +3,10 @@
 [Oo]bj/
 *.user
 
+## Test output
+[Tt]est[Rr]esults/
+*.trx
+
 ## Visual Studio
 .vs/
 

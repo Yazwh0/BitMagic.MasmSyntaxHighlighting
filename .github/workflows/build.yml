@@ -17,6 +17,49 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Unit tests
+        run: >
+          dotnet test tests/MasmSyntaxHighlight.Tests/MasmSyntaxHighlight.Tests.csproj
+          -c Release
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/*.trx
+          if-no-files-found: warn
+
+      # The repo carries a 9999.0.0 sentinel so hand-built VSIXs are never auto-updated over
+      # local changes. CI artifacts must NOT ship that - stamp a throwaway low version so any
+      # real Marketplace release supersedes an installed CI build. release.yml does its own
+      # stamping from the tag and never runs this workflow (tags aren't branch pushes).
+      - name: Stamp dev version
+        shell: pwsh
+        run: |
+          $dev  = "0.0.${{ github.run_number }}"
+          $dev4 = "$dev.0"
+
+          $manifest = 'src/MasmSyntaxHighlight/source.extension.vsixmanifest'
+          $xml = Get-Content $manifest -Raw
+          $xml = [regex]::Replace($xml, '(<Identity\b[^>]*\bVersion=")[^"]*(")', "`${1}$dev`${2}")
+          Set-Content $manifest $xml -NoNewline
+
+          $asm = 'src/MasmSyntaxHighlight/Properties/AssemblyInfo.cs'
+          $cs = Get-Content $asm -Raw
+          $cs = [regex]::Replace($cs, '(AssemblyVersion\(")[^"]*("\))',     "`${1}$dev4`${2}")
+          $cs = [regex]::Replace($cs, '(AssemblyFileVersion\(")[^"]*("\))', "`${1}$dev4`${2}")
+          Set-Content $asm $cs -NoNewline
+
+          Write-Host "dev build version = $dev (assembly $dev4)"
+
       - name: Restore NuGet packages
         run: msbuild MasmSyntaxHighlight.sln -t:Restore -p:Configuration=Release
 

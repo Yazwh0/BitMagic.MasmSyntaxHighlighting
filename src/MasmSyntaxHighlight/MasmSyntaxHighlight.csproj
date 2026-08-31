@@ -64,12 +64,15 @@
     <Compile Include="MasmContentTypes.cs" />
     <Compile Include="Commands\MasmCommentCommandHandler.cs" />
     <Compile Include="Completion\MasmCompletionSource.cs" />
+    <Compile Include="Completion\MasmCompletionCommitManager.cs" />
     <Compile Include="Diagnostics\MasmErrorListDataSource.cs" />
     <Compile Include="Editing\MasmSmartIndent.cs" />
     <Compile Include="Editing\MasmAutoOutdent.cs" />
     <Compile Include="Tagging\MasmOutliningTagger.cs" />
     <Compile Include="Tagging\MasmBraceMatchingTagger.cs" />
     <Compile Include="Tagging\MasmReferenceHighlightTagger.cs" />
+    <Compile Include="Tagging\MasmDiagnostic.cs" />
+    <Compile Include="Tagging\MasmStructuralAnalyzer.cs" />
     <Compile Include="Tagging\MasmDiagnosticsTagger.cs" />
     <Compile Include="QuickInfo\MasmQuickInfoSource.cs" />
     <Compile Include="Classification\MasmClassificationNames.cs" />
@@ -84,6 +87,7 @@
     <Compile Include="Lexing\MasmSymbols.cs" />
     <Compile Include="Lexing\MasmSymbolDef.cs" />
     <Compile Include="Lexing\MasmIncludeIndex.cs" />
+    <Compile Include="Lexing\MasmStructIndex.cs" />
     <Compile Include="Navigation\MasmBufferServices.cs" />
     <Compile Include="Navigation\MasmSourceText.cs" />
     <Compile Include="Navigation\MasmDefinitionIndex.cs" />

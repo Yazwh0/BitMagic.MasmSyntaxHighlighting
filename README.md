@@ -3,10 +3,10 @@
 A Visual Studio 2022 extension for Microsoft Macro Assembler 64-bit (`ml64.exe`) source files.
 It provides **syntax colouring**, **Go To Definition** (Ctrl+Click / F12), **QuickInfo**
 tooltips, **reference highlighting**, **Peek Definition**, **Go To All** symbol search,
-**statement completion**, structural **diagnostics**, **Comment / Uncomment**, **outlining**
-(collapsible blocks), **brace matching** and **smart indent** (with auto-outdent of closing
-keywords) - but no build integration, no member/parameter IntelliSense, and no navigation bar
-or Find All References window.
+**statement completion** (including struct members after `.`), structural **diagnostics**,
+**Comment / Uncomment**, **outlining** (collapsible blocks), **brace matching** and **smart
+indent** (with auto-outdent of closing keywords) - but no build integration, no parameter
+IntelliSense, and no navigation bar or Find All References window.
 
 ## What it colours
 
@@ -114,8 +114,19 @@ deliberately does not.
 Typing an identifier offers instruction mnemonics, registers, directives, type keywords and
 operators (the same word lists the lexer uses), plus every symbol the buffer can see - procs,
 structs, constants, data and labels from this file and its `INCLUDE`s. It is suppressed inside
-a comment or a string. There is no member completion after `.` (e.g. `[rax].Point.` does not
-list `Point`'s fields) and no snippet or parameter help.
+a comment or a string.
+
+After a member-access `.` the list narrows to that struct's fields. The thing before the dot
+is resolved as: a struct type used directly (`uart.`), a register cast (`[rcx].uart.`), a
+variable declared as a struct (`state uart <>` / `LOCAL state:uart`, then `state.`), or a
+struct-typed field of an earlier segment (`scratch.inner.` chains through). The struct just
+has to be visible through the same `INCLUDE` graph as everything else. `.` commits the
+highlighted item, so typing a whole chain (`[rcx].uart.divisor_latch`) in one pass works the
+same as adding the last `.` to text that is already there.
+
+Instance detection is heuristic - it keys off `name TYPE ...` / `LOCAL name:TYPE` lines, so a
+variable whose type is computed or aliased through `TYPEDEF` may not resolve; there is still
+no snippet or parameter help.
 
 ## Diagnostics
 
@@ -204,6 +215,21 @@ The extension is produced at:
 src\MasmSyntaxHighlight\bin\Release\MasmSyntaxHighlight.vsix
 ```
 
+## Tests
+
+The lexer, symbol pass, struct index, `INCLUDE` index and structural (block-balance) analyzer
+have no Visual Studio dependencies. `tests/MasmSyntaxHighlight.Tests` is a plain xUnit project
+that compiles those source files directly and exercises them - no VS SDK, no editor host:
+
+```
+dotnet test tests/MasmSyntaxHighlight.Tests/MasmSyntaxHighlight.Tests.csproj -c Release
+```
+
+`build.yml` runs this on every push and PR (and uploads a `test-results` TRX artifact), so a
+regression in the parsing / analysis logic fails CI without anyone loading the extension. The
+MEF-composed and editor-driven parts (taggers, completion UI, navigation commands, Error List
+wiring) are still only verified by installing the VSIX.
+
 ## Run / debug
 
 Press **F5** in Visual Studio. This launches the *experimental instance* of VS with the
@@ -214,13 +240,21 @@ extension loaded; open `samples\demo.asm` to see the colouring.
 Double-click `MasmSyntaxHighlight.vsix` (or use *Extensions > Manage Extensions*) and restart
 Visual Studio. Open any `.asm` / `.inc` file.
 
+### Installing a local build
+
+A `.vsix` you build yourself is stamped `9999.0.0` (see *Cutting a release*), so installing it
+replaces the Marketplace copy and Visual Studio will not auto-update back over it while you
+iterate. To return to the released version, uninstall under *Extensions > Manage Extensions*
+and reinstall from the Marketplace. CI build artifacts are not affected - they carry a low
+`0.0.<run>` version and update normally.
+
 ## Continuous integration & releasing
 
 Two GitHub Actions workflows are included (`.github/workflows/`):
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
-| `build.yml` | push to `main`/`master`, any PR, manual | Restores, builds the VSIX on `windows-latest`, uploads it as a build **artifact** (`MasmSyntaxHighlight-vsix`). |
+| `build.yml` | push to `main`/`master`, any PR, manual | Runs the xUnit tests (`dotnet test`, TRX uploaded as `test-results`), then restores and builds the VSIX on `windows-latest` and uploads it as a build **artifact** (`MasmSyntaxHighlight-vsix`). |
 | `release.yml` | push a `v*` tag (e.g. `v1.2.0`), or manual with a version | Stamps the version into the manifest **and** `AssemblyInfo.cs`, builds, publishes a **GitHub Release** with the `.vsix` attached, and — if `VS_MARKETPLACE_PAT` is set — pushes to the **Visual Studio Marketplace**. |
 
 Both build with `msbuild` only - the VSIX packaging targets come from the
@@ -240,6 +274,18 @@ Nothing needs editing by hand: for that build the workflow rewrites `<Identity V
 assembly). These edits are build-time only and not committed - the git tag and the GitHub
 Release are the record. Version format is `Major.Minor.Build[.Revision]`, and each release
 must be a strictly higher version than the last (the Marketplace rejects re-uploads).
+
+**The committed version is a `9999.0.0` sentinel and never needs bumping.** It exists so a
+hand-built / F5'd extension always out-numbers the Marketplace copy and is never
+auto-updated over your local changes. Both workflows stamp a real version before building:
+`release.yml` from the pushed tag, `build.yml` down to a throwaway `0.0.<run>` so a CI
+artifact someone installs is still superseded by the next real release. Only a `.vsix` you
+build by hand carries `9999.0.0` - see *Installing a local build* below.
+
+`release.yml` will not publish the sentinel: the resolved tag version must have a major
+below 100, and a **Verify stamped version** step re-reads the manifest and `AssemblyInfo`
+after stamping and aborts the release if either is still `9999` (or otherwise not the
+resolved version) - so a broken stamp regex fails the build instead of shipping.
 
 ### Publishing to the Visual Studio Marketplace
 
@@ -291,10 +337,12 @@ the GitHub Release is already published at that point, so you can re-upload by h
 
 ### Versioning for a manual upload
 
-To upload a `.vsix` by hand instead of tagging, **bump the version first** in both
-`source.extension.vsixmanifest` (`<Identity Version="X.Y.Z">`) and `Properties/AssemblyInfo.cs`
-(`AssemblyVersion` / `AssemblyFileVersion`, `X.Y.Z.0`). The repository copies stay at `1.0.0`
-between releases; the published version lives in the git tags / GitHub Releases.
+To upload a `.vsix` to the Marketplace by hand instead of tagging, **set a real version
+first** in both `source.extension.vsixmanifest` (`<Identity Version="X.Y.Z">`) and
+`Properties/AssemblyInfo.cs` (`AssemblyVersion` / `AssemblyFileVersion`, `X.Y.Z.0`) - the
+`9999.0.0` sentinel must not be published. Put it back to `9999.0.0` afterwards (or just
+`git checkout` the two files). The actually-published version lives in the git tags / GitHub
+Releases.
 
 ## Customising the colours
 
@@ -344,8 +392,9 @@ needs to change.
   lookup as Go To Definition, so they agree with it; Go To All reads every project file from
   disk (last-saved) and skips proc-local labels.
 * Completion is one flat list (keywords + every visible symbol) with no context filtering -
-  it will happily offer a register where only a label makes sense. It does not parse `.`
-  member access, so struct fields are not completed.
+  it will happily offer a register where only a label makes sense. The exception is after a
+  member-access `.`, where the list is only the resolved struct's fields (`MasmStructIndex`
+  builds the struct/instance model from the same token stream and `INCLUDE` graph).
 * Diagnostics are token-only and cover block structure alone. They do not know about macros,
   so a macro that expands to a lone `PROC` / `ENDIF` / ... can be flagged wrongly; there is
   no diagnostic for undefined symbols, bad operands, or anything needing a real assembler.
@@ -373,7 +422,8 @@ src/MasmSyntaxHighlight/
   Commands/
     MasmCommentCommandHandler.cs      Comment / Uncomment / Toggle Line Comment
   Completion/
-    MasmCompletionSource.cs           IAsyncCompletionSource - keyword + symbol completion
+    MasmCompletionSource.cs           IAsyncCompletionSource - keyword + symbol + struct-member completion
+    MasmCompletionCommitManager.cs   IAsyncCompletionCommitManager - '.' commits, so member chains re-trigger
   Editing/
     MasmSmartIndent.cs               ISmartIndent - indent one level after a block opener
     MasmAutoOutdent.cs               IChainedCommandHandler - outdent a closing keyword as typed
@@ -381,6 +431,8 @@ src/MasmSyntaxHighlight/
     MasmOutliningTagger.cs            Collapsible regions for paired blocks and ;region
     MasmBraceMatchingTagger.cs        Highlights the () / [] pair next to the caret
     MasmReferenceHighlightTagger.cs   Boxes every occurrence of the symbol under the caret
+    MasmDiagnostic.cs                 One structural diagnostic (span + line/column + message)
+    MasmStructuralAnalyzer.cs        Block-balance check over a string (pure; unit-tested)
     MasmDiagnosticsTagger.cs          IErrorTag - squiggles unbalanced / mismatched blocks
   Diagnostics/
     MasmErrorListDataSource.cs        ITableDataSource - the same diagnostics in the Error List
@@ -398,6 +450,7 @@ src/MasmSyntaxHighlight/
     MasmLexer.cs                      Hand-written MASM lexer
     MasmSymbols.cs                    Resolve references to definitions (this file + includes)
     MasmIncludeIndex.cs              Cached scan of INCLUDEd files for their definitions
+    MasmStructIndex.cs              STRUCT / UNION members + var->type bindings (member completion)
   Navigation/
     MasmBufferServices.cs             One shared MasmDefinitionIndex per buffer
     MasmSourceText.cs                 Cached reads of INCLUDEd files (line/column lookup)
@@ -409,6 +462,8 @@ src/MasmSyntaxHighlight/
     MasmNavigateToItemProvider.cs     INavigateToItemProviderFactory - Go To All symbol search
   QuickInfo/
     MasmQuickInfoSource.cs            IAsyncQuickInfoSource - hover tooltips
+tests/MasmSyntaxHighlight.Tests/      xUnit tests for the VS-free logic (lexer, symbols,
+                                     struct index, INCLUDE index, structural analyzer)
 samples/demo.asm                      Eyeball test file
 ```
 

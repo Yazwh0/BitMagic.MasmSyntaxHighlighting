@@ -37,7 +37,12 @@ namespace MasmSyntaxHighlight.Completion
     /// Statement completion for MASM: instruction mnemonics, registers, directives, type
     /// keywords and operators from <see cref="MasmKeywords"/>, plus every symbol the buffer can
     /// see (procs, structs, constants, data, labels - this file and its <c>INCLUDE</c>s). Not
-    /// offered inside a comment or string. No member completion after <c>.</c> yet.
+    /// offered inside a comment or string.
+    ///
+    /// After a member-access <c>.</c> the list narrows to that struct's fields:
+    /// <c>uart.</c> (the type), <c>[rcx].uart.</c> (a register cast), <c>state.</c> (a variable
+    /// declared <c>state uart &lt;&gt;</c> or <c>LOCAL state:uart</c>), and chains through
+    /// struct-typed fields (<c>outer.inner.</c>).
     /// </summary>
     internal sealed class MasmCompletionSource : IAsyncCompletionSource
     {
@@ -64,7 +69,10 @@ namespace MasmSyntaxHighlight.Completion
                            || trigger.Reason == CompletionTriggerReason.InvokeAndCommitIfUnique
                            || trigger.Reason == CompletionTriggerReason.InvokeMatchingType;
 
-            if (!invoked && word.Length == 0)
+            // typing the '.' itself should open the member list even though no word follows yet
+            bool afterMemberDot = IsMemberAccessStart(triggerLocation, word.Start.Position);
+
+            if (!invoked && word.Length == 0 && !afterMemberDot)
                 return CompletionStartData.DoesNotParticipateInCompletion;
 
             return new CompletionStartData(CompletionParticipation.ProvidesItems, word);
@@ -76,6 +84,14 @@ namespace MasmSyntaxHighlight.Completion
         {
             var builder = ImmutableArray.CreateBuilder<CompletionItem>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (TryGetStructMembers(triggerLocation, out MasmStructDef structDef))
+            {
+                foreach (MasmStructField field in structDef.Fields)
+                    if (seen.Add(field.Name))
+                        builder.Add(MakeItem(field.Name, FieldDescription(structDef.Name, field)));
+                return Task.FromResult(new CompletionContext(builder.ToImmutable()));
+            }
 
             try
             {
@@ -139,6 +155,38 @@ namespace MasmSyntaxHighlight.Completion
                     builder.Add(MakeItem(w, description));
         }
 
+        private static string FieldDescription(string structName, MasmStructField field)
+            => field.TypeName != null
+                ? structName + "." + field.Name + " : " + field.TypeName
+                : structName + "." + field.Name;
+
+        // ---------------------------------------------------------------- member access
+
+        /// <summary>True when the word being completed sits immediately after a member-access
+        /// <c>.</c> that is glued to an identifier or a <c>]</c> / <c>)</c>.</summary>
+        private static bool IsMemberAccessStart(SnapshotPoint trigger, int wordStart)
+        {
+            ITextSnapshot s = trigger.Snapshot;
+            if (wordStart <= 0 || s[wordStart - 1] != '.') return false;
+            if (wordStart - 2 < 0) return false;
+            char b = s[wordStart - 2];
+            return b == ']' || b == ')' || IsIdentChar(b);
+        }
+
+        private bool TryGetStructMembers(SnapshotPoint trigger, out MasmStructDef structDef)
+        {
+            structDef = null;
+            ITextSnapshot s = trigger.Snapshot;
+
+            int start = trigger.Position;
+            while (start > 0 && IsIdentChar(s[start - 1])) start--;
+            if (start <= 0 || s[start - 1] != '.') return false;
+
+            try { structDef = _index.ResolveStructMembers(s, start - 1); }
+            catch { structDef = null; }
+            return structDef != null;
+        }
+
         private static string SymbolDescription(MasmTokenKind kind)
         {
             switch (kind)
@@ -163,8 +211,16 @@ namespace MasmSyntaxHighlight.Completion
             ITextSnapshot snapshot = end.Snapshot;
             int start = end.Position;
             while (start > 0 && IsIdentChar(snapshot[start - 1])) start--;
-            // a leading '.' makes it a directive token (.code, .if, ...)
-            if (start > 0 && snapshot[start - 1] == '.') start--;
+            // A leading '.' is part of the word only when it opens a directive (".code", ".if")
+            // - i.e. it sits at the start of a statement, with whitespace or nothing before it.
+            // A '.' glued to an identifier, ']' or ')' is member access ("[rdx].uart.field")
+            // and must stay in the buffer, or committing an item would eat it.
+            if (start > 0 && snapshot[start - 1] == '.')
+            {
+                char before = start >= 2 ? snapshot[start - 2] : '\n';
+                if (before == '\n' || before == '\r' || before == ' ' || before == '\t')
+                    start--;
+            }
             return new SnapshotSpan(snapshot, start, end.Position - start);
         }
 

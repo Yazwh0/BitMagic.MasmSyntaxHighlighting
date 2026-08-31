@@ -23,6 +23,14 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Unit tests
+        run: dotnet test tests/MasmSyntaxHighlight.Tests/MasmSyntaxHighlight.Tests.csproj -c Release
+
       - name: Resolve version
         id: ver
         shell: pwsh
@@ -30,6 +38,15 @@ jobs:
           $v = '${{ github.event.inputs.version }}'
           if (-not $v) { $v = '${{ github.ref_name }}' -replace '^v', '' }
           if ($v -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { throw "Version '$v' is not N.N.N[.N]" }
+
+          # The repo carries a 9999.0.0 dev sentinel (see README > Cutting a release). A real
+          # release must be a plausible low version - never the sentinel, never a typo like
+          # '99999'. Raise the ceiling here if the project ever legitimately reaches major 100.
+          $major = [int]($v -split '\.')[0]
+          if ($major -ge 100) {
+            throw "Refusing to release version '$v': major $major is out of range (dev sentinel is 9999.0.0). Tag a real version such as 1.2.3."
+          }
+
           $v4 = if (($v -split '\.').Count -eq 4) { $v } else { "$v.0" }
           "version=$v"   >> $env:GITHUB_OUTPUT
           "version4=$v4" >> $env:GITHUB_OUTPUT
@@ -51,6 +68,29 @@ jobs:
           Set-Content $asm $cs -NoNewline
 
           Write-Host "manifest = ${{ steps.ver.outputs.version }} ; assembly = ${{ steps.ver.outputs.version4 }}"
+
+      - name: Verify stamped version
+        shell: pwsh
+        run: |
+          $want  = '${{ steps.ver.outputs.version }}'
+          $want4 = '${{ steps.ver.outputs.version4 }}'
+
+          $manifest = Get-Content 'src/MasmSyntaxHighlight/source.extension.vsixmanifest' -Raw
+          if ($manifest -notmatch '<Identity\b[^>]*\bVersion="([^"]+)"') { throw 'No <Identity Version> found in the manifest.' }
+          $gotManifest = $Matches[1]
+
+          $asm = Get-Content 'src/MasmSyntaxHighlight/Properties/AssemblyInfo.cs' -Raw
+          if ($asm -notmatch 'AssemblyVersion\("([^"]+)"\)') { throw 'No AssemblyVersion found in AssemblyInfo.cs.' }
+          $gotAsm = $Matches[1]
+
+          # The stamp step must have replaced the dev sentinel with the resolved version. If a
+          # manifest/format change ever makes the regex silently no-op, this stops the release
+          # before 9999.0.0 (or any wrong version) can be built and published.
+          if ($gotManifest -ne $want)  { throw "Manifest version is '$gotManifest', expected '$want' - the stamp step did not take." }
+          if ($gotAsm      -ne $want4) { throw "AssemblyVersion is '$gotAsm', expected '$want4' - the stamp step did not take." }
+          if ($gotManifest -match '^\d{3,}\.' -or $gotAsm -match '^\d{3,}\.') { throw "Refusing to release version '$gotManifest' - looks like the dev sentinel." }
+
+          Write-Host "Verified: manifest $gotManifest, assembly $gotAsm"
 
       - name: Restore NuGet packages
         run: msbuild MasmSyntaxHighlight.sln -t:Restore -p:Configuration=Release

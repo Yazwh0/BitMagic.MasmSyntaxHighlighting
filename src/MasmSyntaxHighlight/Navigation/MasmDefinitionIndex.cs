@@ -24,6 +24,10 @@ namespace MasmSyntaxHighlight.Navigation
         private Dictionary<string, List<MasmSymbolDef>> _defsByName =
             new Dictionary<string, List<MasmSymbolDef>>(StringComparer.OrdinalIgnoreCase);
         private List<ProcRange> _procRanges = new List<ProcRange>();
+        private Dictionary<string, MasmStructDef> _structs =
+            new Dictionary<string, MasmStructDef>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, string> _instances =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         internal MasmDefinitionIndex(ITextBuffer buffer, ITextDocument document)
         {
@@ -176,6 +180,105 @@ namespace MasmSyntaxHighlight.Navigation
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// The struct whose members should be offered for completion after the <c>.</c> at
+        /// <paramref name="dotPosition"/>. Walks the access chain to the left of the dot -
+        /// <c>TYPE.</c>, <c>[reg].TYPE.</c>, <c>var.</c> (var declared as a struct), and chains
+        /// through struct-typed members (<c>a.b.c.</c>). <c>null</c> when the chain does not land
+        /// on a known struct.
+        /// </summary>
+        internal MasmStructDef ResolveStructMembers(ITextSnapshot snapshot, int dotPosition)
+        {
+            lock (_gate)
+            {
+                EnsureParsed(snapshot);
+
+                int di = DotTokenIndexAt(dotPosition);
+                if (di < 0) return null;
+
+                var segments = new List<string>();
+                int k = di;
+                while (k - 1 >= 0)
+                {
+                    MasmToken prev = _tokens[k - 1];
+                    if (prev.Kind == MasmTokenKind.Operator)
+                        break; // ']' / ')' base, or any other punctuation - stop the chain here
+                    if (!IsChainSegment(prev.Kind))
+                        break;
+
+                    segments.Insert(0, _text.Substring(prev.Start, prev.Length));
+
+                    if (k - 2 >= 0 && _tokens[k - 2].Kind == MasmTokenKind.Operator
+                        && _tokens[k - 2].Length == 1 && _text[_tokens[k - 2].Start] == '.')
+                    {
+                        k -= 2;
+                        continue;
+                    }
+                    break;
+                }
+
+                return segments.Count == 0 ? null : ResolveChain(segments);
+            }
+        }
+
+        private int DotTokenIndexAt(int dotPosition)
+        {
+            int lo = 0, hi = _tokens.Count - 1;
+            while (lo <= hi)
+            {
+                int mid = (lo + hi) / 2;
+                MasmToken t = _tokens[mid];
+                if (dotPosition < t.Start) hi = mid - 1;
+                else if (dotPosition >= t.End) lo = mid + 1;
+                else
+                    return (t.Kind == MasmTokenKind.Operator && t.Length == 1 && _text[t.Start] == '.')
+                        ? mid : -1;
+            }
+            return -1;
+        }
+
+        private static bool IsChainSegment(MasmTokenKind kind)
+        {
+            switch (kind)
+            {
+                case MasmTokenKind.Identifier:
+                case MasmTokenKind.Register:
+                case MasmTokenKind.DataType:
+                case MasmTokenKind.Label:
+                case MasmTokenKind.TypeName:
+                case MasmTokenKind.DataName:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private MasmStructDef ResolveChain(List<string> segments)
+        {
+            if (!_structs.TryGetValue(segments[0], out MasmStructDef current))
+            {
+                if (!_instances.TryGetValue(segments[0], out string type)
+                    || !_structs.TryGetValue(type, out current))
+                    return null;
+            }
+
+            for (int s = 1; s < segments.Count; s++)
+            {
+                string fieldType = FieldType(current, segments[s]);
+                if (fieldType == null || !_structs.TryGetValue(fieldType, out current))
+                    return null;
+            }
+            return current;
+        }
+
+        private static string FieldType(MasmStructDef structDef, string fieldName)
+        {
+            foreach (MasmStructField f in structDef.Fields)
+                if (string.Equals(f.Name, fieldName, StringComparison.OrdinalIgnoreCase))
+                    return f.TypeName;
+            return null;
         }
 
         // ---------------------------------------------------------------- resolution core
@@ -345,10 +448,41 @@ namespace MasmSyntaxHighlight.Navigation
                 list.Add(def);
             }
 
+            var structs = new Dictionary<string, MasmStructDef>(StringComparer.OrdinalIgnoreCase);
+            var instances = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            MasmStructModel local = MasmStructIndex.Collect(tokens, text, null);
+            foreach (MasmStructDef sd in local.Structs)
+                structs[sd.Name] = sd; // local wins
+            foreach (KeyValuePair<string, string> kv in local.Instances)
+                instances[kv.Key] = kv.Value;
+
+            try
+            {
+                MasmStructModel ext = MasmIncludeIndex.CollectStructModel(_document?.FilePath, text);
+                if (ext != null)
+                {
+                    foreach (MasmStructDef sd in ext.Structs)
+                        if (!structs.ContainsKey(sd.Name)) structs[sd.Name] = sd;
+                    foreach (KeyValuePair<string, string> kv in ext.Instances)
+                        if (!instances.ContainsKey(kv.Key)) instances[kv.Key] = kv.Value;
+                }
+            }
+            catch
+            {
+                // completion must never throw into the editor
+            }
+
+            // an instance is only useful if its declared type names a struct we actually know
+            foreach (string key in new List<string>(instances.Keys))
+                if (!structs.ContainsKey(instances[key]))
+                    instances.Remove(key);
+
             _text = text;
             _tokens = tokens;
             _defsByName = byName;
             _procRanges = BuildProcRanges(tokens, text);
+            _structs = structs;
+            _instances = instances;
             _snapshot = snapshot;
         }
     }

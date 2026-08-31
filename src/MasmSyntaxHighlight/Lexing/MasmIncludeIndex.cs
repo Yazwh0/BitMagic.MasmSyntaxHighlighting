@@ -53,6 +53,7 @@ namespace MasmSyntaxHighlight.Lexing
         {
             public DateTime WriteTimeUtc;
             public List<MasmSymbolDef> Defs; // null until symbols are actually needed
+            public MasmStructModel Structs;  // rides along with Defs (same needSymbols pass)
             public List<string> RawIncludes;
             public string Directory;
         }
@@ -102,6 +103,36 @@ namespace MasmSyntaxHighlight.Lexing
 
             Walk(rootFilePath, rootText, entry => AddVisibleDefs(accumulated, entry.Defs));
             return accumulated;
+        }
+
+        /// <summary>
+        /// Every <c>STRUCT</c> / <c>UNION</c> type and struct-instance binding visible to the file
+        /// at <paramref name="rootFilePath"/> - through its own <c>INCLUDE</c>s and through any
+        /// parent that includes it. Backs member completion after <c>.</c>. Empty when the buffer
+        /// is not backed by a file on disk.
+        /// </summary>
+        public static MasmStructModel CollectStructModel(string rootFilePath, string rootText)
+        {
+            var structs = new List<MasmStructDef>();
+            var instances = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(rootFilePath) || string.IsNullOrEmpty(rootText))
+                return new MasmStructModel(structs, instances);
+
+            Walk(rootFilePath, rootText, entry =>
+            {
+                MasmStructModel model = entry.Structs;
+                if (model == null) return;
+
+                foreach (MasmStructDef sd in model.Structs)
+                {
+                    if (structs.Count >= MaxSymbols) break;
+                    structs.Add(sd);
+                }
+                foreach (KeyValuePair<string, string> kv in model.Instances)
+                    if (!instances.ContainsKey(kv.Key)) instances[kv.Key] = kv.Value;
+            });
+
+            return new MasmStructModel(structs, instances);
         }
 
         /// <summary>
@@ -476,6 +507,7 @@ namespace MasmSyntaxHighlight.Lexing
                 {
                     List<MasmToken> tokens = new MasmLexer(text).Tokenize();
                     entry.Defs = MasmSymbols.CollectDefinitionsWithLocations(tokens, text, path);
+                    entry.Structs = MasmStructIndex.Collect(tokens, text, path);
                 }
 
                 lock (Gate)

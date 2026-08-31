@@ -10,5 +10,9 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 [assembly: ComVisible(false)]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+// Sentinel dev version: higher than anything the Marketplace will ever carry, so a locally
+// built / F5'd extension is never auto-updated over your changes. Both CI workflows rewrite
+// this and the manifest version before building - release.yml from the pushed vX.Y.Z tag,
+// build.yml to a throwaway 0.0.<run> - so the sentinel only ever ships in a hand-built VSIX.
+[assembly: AssemblyVersion("9999.0.0.0")]
+[assembly: AssemblyFileVersion("9999.0.0.0")]
