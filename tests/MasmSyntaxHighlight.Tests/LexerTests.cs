@@ -110,6 +110,44 @@ namespace MasmSyntaxHighlight.Tests
         }
 
         [Fact]
+        public void A_struct_field_named_after_a_register_is_a_data_name_not_a_register()
+        {
+            const string src =
+                "cpu_history STRUCT\n" +
+                "    flags   dq  ?\n" +
+                "    rip     dq  ?\n" +
+                "cpu_history ENDS\n";
+            var toks = Lex(src);
+
+            Assert.Contains(toks, t => t.Kind == MasmTokenKind.DataName && Text(src, t) == "flags");
+            Assert.Contains(toks, t => t.Kind == MasmTokenKind.DataName && Text(src, t) == "rip");
+            Assert.DoesNotContain(toks, t => t.Kind == MasmTokenKind.Register && Text(src, t) == "flags");
+        }
+
+        [Theory]
+        [InlineData("flags")]
+        [InlineData("word")]   // also a size keyword
+        [InlineData("si")]
+        [InlineData("di")]
+        public void A_data_item_named_after_a_reserved_word_colours_as_the_definition(string name)
+        {
+            string src = name + " dword ?\n";
+            var first = Lex(src)[0];
+            Assert.Equal(MasmTokenKind.DataName, first.Kind);
+            Assert.Equal(name, Text(src, first));
+        }
+
+        [Fact]
+        public void A_register_operand_is_still_a_register()
+        {
+            const string src = "    mov rax, flags\n    mov word ptr [rdx], 0\n";
+            var toks = Lex(src);
+            // 'flags' as an operand keeps the register kind; 'word' after 'mov' stays a size keyword
+            Assert.Contains(toks, t => t.Kind == MasmTokenKind.Register && Text(src, t) == "flags");
+            Assert.Contains(toks, t => t.Kind == MasmTokenKind.DataType && Text(src, t) == "word");
+        }
+
+        [Fact]
         public void Tokens_are_ordered_and_non_overlapping()
         {
             const string src =

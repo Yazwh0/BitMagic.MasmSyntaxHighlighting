@@ -304,14 +304,28 @@ namespace MasmSyntaxHighlight.Lexing
             bool isMnemonic = MasmKeywords.Mnemonics.Contains(word);
             bool isOperator = MasmKeywords.Operators.Contains(word);
 
-            // A known reserved word is always classified as that word - this must come before
-            // the definition-name check so that e.g. "mov byte ptr ..." or "movaps xmmword ..."
-            // are not mistaken for "<name> <size>" data definitions.
+            // A mnemonic / operator reserved word is always classified as that word - this must
+            // come before the definition-name check so that e.g. "mov byte ptr ..." or
+            // "movaps xmmword ..." are not mistaken for "<name> <size>" data definitions. (Those
+            // size words are the second token, never at statement start, so the check below is
+            // safe from them.)
             if (isMnemonic && isOperator)
                 return new MasmToken(start, length,
                     _atStatementStart ? MasmTokenKind.Mnemonic : MasmTokenKind.Operator);
             if (isMnemonic)
                 return new MasmToken(start, length, MasmTokenKind.Mnemonic);
+
+            // definition name:   name PROC | name EQU | name = | name db ... | name BYTE ...
+            // Only at statement start and only when the next word is a definition keyword, so a
+            // struct field or data item named after a register or size ("flags dq ?",
+            // "word dword ?") colours as the definition, not as the reserved word.
+            if (_atStatementStart)
+            {
+                MasmTokenKind? definition = ClassifyDefinitionName();
+                if (definition.HasValue)
+                    return new MasmToken(start, length, definition.Value);
+            }
+
             if (MasmKeywords.Registers.Contains(word))
                 return new MasmToken(start, length, MasmTokenKind.Register);
             if (MasmKeywords.DataTypes.Contains(word))
@@ -320,14 +334,6 @@ namespace MasmSyntaxHighlight.Lexing
                 return new MasmToken(start, length, MasmTokenKind.Directive);
             if (isOperator)
                 return new MasmToken(start, length, MasmTokenKind.Operator);
-
-            // definition name:   name PROC | name EQU | name = | name db ... | name BYTE ...
-            if (_atStatementStart)
-            {
-                MasmTokenKind? definition = ClassifyDefinitionName();
-                if (definition.HasValue)
-                    return new MasmToken(start, length, definition.Value);
-            }
 
             // reference coloured by the operand it follows:
             //   call / invoke <name>   -> proc name
