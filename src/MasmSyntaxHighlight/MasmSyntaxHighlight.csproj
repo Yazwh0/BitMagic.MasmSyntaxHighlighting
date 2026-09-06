@@ -65,6 +65,7 @@
     <Compile Include="Commands\MasmCommentCommandHandler.cs" />
     <Compile Include="Completion\MasmCompletionSource.cs" />
     <Compile Include="Completion\MasmCompletionCommitManager.cs" />
+    <Compile Include="Completion\MasmCompletionCommitPolicy.cs" />
     <Compile Include="Diagnostics\MasmErrorListDataSource.cs" />
     <Compile Include="Editing\MasmSmartIndent.cs" />
     <Compile Include="Editing\MasmAutoOutdent.cs" />

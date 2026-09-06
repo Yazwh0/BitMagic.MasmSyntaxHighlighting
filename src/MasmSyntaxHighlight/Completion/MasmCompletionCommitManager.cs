@@ -25,6 +25,11 @@ namespace MasmSyntaxHighlight.Completion
     /// the member list for <c>uart</c> never appears. Committing on <c>.</c> ends that session so
     /// a fresh one opens for the next segment - the same path as typing <c>.</c> against text
     /// that is already there. Enter and Tab still commit as before; this only adds <c>.</c>.
+    ///
+    /// The <c>.</c> only commits when it closes an identifier segment. Typed after <c>]</c> or
+    /// <c>)</c> (<c>[rdx].</c>) it must not commit - the applicable span there covers the bracket
+    /// expression, so committing would replace it and eat the <c>]</c> (giving <c>[rdx.</c>).
+    /// See <see cref="MasmCompletionCommitPolicy"/>.
     /// </summary>
     internal sealed class MasmCompletionCommitManager : IAsyncCompletionCommitManager
     {
@@ -37,10 +42,11 @@ namespace MasmSyntaxHighlight.Completion
         {
             if (typedChar != '.') return false;
 
-            // Only when a word is actually being completed - never turn "[rdx].." or a bare
-            // trigger dot into a commit of whatever happens to be selected.
-            SnapshotSpan applicable = session.ApplicableToSpan.GetSpan(location.Snapshot);
-            return applicable.Length > 0;
+            ITextSnapshot snapshot = location.Snapshot;
+            char before = location.Position > 0 ? snapshot[location.Position - 1] : '\0';
+            int applicableLength = session.ApplicableToSpan.GetSpan(snapshot).Length;
+
+            return MasmCompletionCommitPolicy.ShouldCommitOnDot(typedChar, before, applicableLength);
         }
 
         public CommitResult TryCommit(

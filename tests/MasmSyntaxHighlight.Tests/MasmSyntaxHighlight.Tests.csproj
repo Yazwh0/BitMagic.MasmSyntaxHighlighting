@@ -24,6 +24,9 @@
     <Compile Include="..\..\src\MasmSyntaxHighlight\Lexing\*.cs">
       <Link>Lexing\%(Filename)%(Extension)</Link>
     </Compile>
+    <Compile Include="..\..\src\MasmSyntaxHighlight\Completion\MasmCompletionCommitPolicy.cs">
+      <Link>Completion\MasmCompletionCommitPolicy.cs</Link>
+    </Compile>
     <Compile Include="..\..\src\MasmSyntaxHighlight\Tagging\MasmDiagnostic.cs">
       <Link>Tagging\MasmDiagnostic.cs</Link>
     </Compile>
