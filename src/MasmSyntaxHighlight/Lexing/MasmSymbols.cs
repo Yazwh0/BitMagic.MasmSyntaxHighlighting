@@ -200,9 +200,22 @@ namespace MasmSyntaxHighlight.Lexing
             if (symbols.Count == 0) return tokens;
 
             var resolved = new List<MasmToken>(tokens.Count);
+
+            // The operand of INCLUDE / INCLUDELIB is a file name ("include uart.asm"), not code.
+            // Its words must never be recoloured as a struct / proc / constant that happens to
+            // share the name - up to the end of that line they are left exactly as the lexer
+            // produced them.
+            int includeOperandEnd = -1;
+
             foreach (MasmToken token in tokens)
             {
-                if (token.Kind == MasmTokenKind.Identifier &&
+                if (token.Kind == MasmTokenKind.Directive && IsIncludeDirective(text, token))
+                    includeOperandEnd = LineEnd(text, token.End);
+
+                bool inIncludeOperand = token.Start < includeOperandEnd;
+
+                if (!inIncludeOperand &&
+                    token.Kind == MasmTokenKind.Identifier &&
                     symbols.TryGetValue(text.Substring(token.Start, token.Length), out MasmTokenKind kind))
                 {
                     resolved.Add(new MasmToken(token.Start, token.Length, kind));
@@ -214,6 +227,15 @@ namespace MasmSyntaxHighlight.Lexing
             }
 
             return resolved;
+        }
+
+        private static bool IsIncludeDirective(string text, MasmToken token)
+            => KeywordIs(text, token, "include") || KeywordIs(text, token, "includelib");
+
+        private static int LineEnd(string text, int from)
+        {
+            int nl = text.IndexOf('\n', from);
+            return nl < 0 ? text.Length : nl;
         }
     }
 }
